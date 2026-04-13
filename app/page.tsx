@@ -23,6 +23,4 @@ interface Report {
   verified: boolean;
 }
 
-export default function Home() {
-  return <h1 className="p-20 text-4xl font-black">TEST OHNE SUPABASE</h1>;
-}
+
