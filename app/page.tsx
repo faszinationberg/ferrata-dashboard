@@ -80,7 +80,7 @@ export default function Home() {
         <header className="mb-12 flex justify-between items-end">
           <div>
             <h1 className="text-5xl font-black tracking-tighter text-slate-900 italic leading-none">ferrata.report</h1>
-            <p className="text-slate-500 text-lg mt-3 font-medium">Zentrales Monitoring & Live-Feed</p>
+            <p className="text-slate-500 text-lg mt-3 font-medium">Zentrales Monitoring & Live-Feed - Guenther AUSSERHOFER</p>
           </div>
           <div className="hidden md:block bg-white p-5 rounded-[2rem] shadow-sm border border-slate-200">
             <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest leading-none mb-2 text-center">Cloud Status</p>
