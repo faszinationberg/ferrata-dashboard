@@ -23,7 +23,7 @@ interface Report {
   verified: boolean;
 }
 
-xport default function Home() {
+export default function Home() {
   const [ferratas, setFerratas] = useState<Ferrata[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
