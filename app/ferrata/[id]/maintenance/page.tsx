@@ -114,7 +114,7 @@ const handleAction = async (action: 'verify' | 'discard') => {
               ← Dashboard
             </button>
             <h1 className="text-3xl font-semibold tracking-tight">{ferrata?.name}</h1>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-500 mt-1">Wartungs-Zentrale</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-500 mt-1">Wartungs-Zentrale - IM AUFBAU - NOCH VIEL ARBEIT</p>
           </div>
           <Badge 
               label="Klettersteig-Status" 
@@ -175,17 +175,26 @@ const handleAction = async (action: 'verify' | 'discard') => {
     </div>
   </section>
 
-  {/* 2. MODUL: MÄNGEL (OFFIZIELL) */}
-  <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
-    <div className="flex justify-between items-center border-b border-slate-50 pb-6">
-      <div>
-        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Offizielle Mängelliste</h3>
-        <p className="text-[10px] text-red-500 mt-1 font-bold uppercase tracking-wider">
-          {defects.length} Offene Mängel
-        </p>
-      </div>
-      <div className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-[10px] font-black">AKTIV</div>
+
+{/* 2. MODUL: MÄNGEL (OFFIZIELL) */}
+<section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
+  <div className="flex justify-between items-center border-b border-slate-50 pb-6">
+    <div>
+      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Offizielle Mängelliste</h3>
+      <p className="text-[10px] text-red-500 mt-1 font-bold uppercase tracking-wider">
+        {defects.length} Offene Mängel
+      </p>
     </div>
+    
+    {/* Neuer Button zum Erstellen eines Mangels */}
+    <button 
+      onClick={() => router.push(`/ferrata/${id}/defect`)}
+      className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all border border-blue-100 shadow-sm"
+    >
+      <span>MANGEL ERFASSEN</span>
+      <span className="text-sm">+</span>
+    </button>
+  </div>
     
     <div className="grid gap-3">
       {defects.length === 0 && (

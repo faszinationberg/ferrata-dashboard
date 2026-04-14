@@ -244,9 +244,33 @@ export default function MobileUserReport() {
             )}
 
             <div className="grid grid-cols-2 gap-3">
-              <button type="button" onClick={handleGPS} className={`p-4 rounded-2xl text-[11px] font-medium border transition-all ${formData.coordinates ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-white border-slate-100 text-slate-500'}`}>
-                {formData.coordinates ? t.gpsFixed : t.gpsBtn}
+              {/* GPS BUTTON: Zeigt Koordinaten direkt im Button an, wenn erfasst */}
+              <button 
+                type="button" 
+                onClick={handleGPS} 
+                className={`p-4 rounded-2xl text-[11px] font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+                  formData.coordinates 
+                    ? 'bg-emerald-50 border-emerald-100 text-emerald-600' 
+                    : 'bg-white border-slate-100 text-slate-500 hover:border-blue-200'
+                }`}
+              >
+                {formData.coordinates ? (
+                  <>
+                    <span className="text-[10px] font-mono tracking-tighter leading-none">
+                      {formData.coordinates.split(',')[0]}
+                    </span>
+                    <span className="text-[10px] font-mono tracking-tighter leading-none">
+                      {formData.coordinates.split(',')[1]}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-sm">📍</span>
+                    <span>GPS ORTUNG</span>
+                  </>
+                )}
               </button>
+              
               <div className="relative">
                 <input type="text" placeholder={t.altitude} className="w-full h-full bg-white border border-slate-100 p-4 rounded-2xl text-[11px] outline-none text-center" value={formData.altitude} onChange={e => setFormData({...formData, altitude: e.target.value})} />
                 <span className="absolute top-1 left-1/2 -translate-x-1/2 text-[8px] font-bold text-slate-300 uppercase">{t.altLabel}</span>
