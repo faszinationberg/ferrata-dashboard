@@ -685,6 +685,53 @@ const removeImage = (index: number) => {
 
                 </div>
 
+<div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm mt-8">
+  {/* Header & Button in einer Zeile, um oben Platz zu sparen */}
+  <div className="flex justify-between items-center mb-6 border-l-4 border-slate-400 pl-4 py-1">
+    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+      Koordinaten Ausgangspunkt
+    </h3>
+    
+    {/* Navigation direkt als kompakter Link/Button im Header-Bereich */}
+    {ferrata.latitude && ferrata.longitude && (
+      <a 
+        href={`https://www.google.com/maps/search/?api=1&query=${ferrata.latitude},${ferrata.longitude}`}
+        target="_blank"
+        rel="noreferrer"
+        className="flex items-center gap-2 text-emerald-600 hover:text-emerald-700 transition-colors"
+      >
+        <span className="text-[10px] font-black uppercase tracking-wider">Maps öffnen</span>
+        <span className="text-sm">📍</span>
+      </a>
+    )}
+  </div>
+
+  {/* Eingabefelder: Kompakter durch weniger gap und reduziertes Padding */}
+  <div className="grid grid-cols-2 gap-8 px-4">
+    <VerticalDataField 
+      label="Latitude" 
+      value={ferrata.latitude} 
+      isEditable={isGeoEdit} 
+      onSave={(v:string) => updateField('latitude', v)} 
+    />
+    <VerticalDataField 
+      label="Longitude" 
+      value={ferrata.longitude} 
+      isEditable={isGeoEdit} 
+      onSave={(v:string) => updateField('longitude', v)} 
+    />
+  </div>
+
+  {/* Falls keine Daten da sind, zeigen wir einen kleinen Hinweis dezent unten an */}
+  {(!ferrata.latitude || !ferrata.longitude) && (
+    <div className="mt-4 pt-4 border-t border-slate-50 text-center">
+      <p className="text-[9px] font-bold uppercase text-slate-300 tracking-widest italic">
+        Keine Standortdaten verfügbar
+      </p>
+    </div>
+  )}
+</div>
+
                 {isGeoEdit && (
                   <div className="mt-8 pt-4 border-t border-blue-50 text-center">
                     <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest animate-pulse">

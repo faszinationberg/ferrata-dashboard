@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { supabase } from '../../../../lib/supabase';
+import { report } from 'process';
 
 // Die Übersetzungen bleiben identisch für die Funktionalität
 const translations = {
@@ -107,6 +108,7 @@ export default function MobileUserReport() {
     location: '',
     coordinates: '',
     altitude: '',
+    reporter_name: '',
     contact_email: '',
     contact_phone: '',
     email_opt_in: true,
@@ -163,6 +165,7 @@ export default function MobileUserReport() {
         location: formData.location,
         coordinates: formData.coordinates,
         altitude: formData.altitude,
+        reporter_name: formData.reporter_name,
         contact: formData.contact_email,
         reporter_phone: formData.contact_phone,
         email_opt_in: formData.email_opt_in,
@@ -304,27 +307,69 @@ export default function MobileUserReport() {
 
         {/* STEP 3: KONTAKT */}
         {step === 3 && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <h2 className="text-lg font-semibold tracking-tight">{t.step3Title}</h2>
-            
-            <div className="space-y-3">
-              <input type="email" placeholder={t.emailPlaceholder} className="w-full bg-white border border-slate-100 p-4 rounded-2xl text-sm outline-none" value={formData.contact_email} onChange={e => setFormData({...formData, contact_email: e.target.value})} />
-              <input type="tel" placeholder={t.phonePlaceholder} className="w-full bg-white border border-slate-100 p-4 rounded-2xl text-sm outline-none" value={formData.contact_phone} onChange={e => setFormData({...formData, contact_phone: e.target.value})} />
-            </div>
+  <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <h2 className="text-lg font-semibold tracking-tight">{t.step3Title}</h2>
+    
+    <div className="space-y-3">
+      {/* Name des Melders - Neu hinzugefügt & Obligatorisch */}
+      <input 
+        type="text" 
+        required
+        placeholder="Name des Melders *" 
+        className="w-full bg-white border border-slate-100 p-4 rounded-2xl text-sm outline-none focus:border-blue-500 transition-all shadow-sm font-medium" 
+        value={formData.reporter_name || ''} 
+        onChange={e => setFormData({...formData, reporter_name: e.target.value})} 
+      />
 
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" checked={formData.email_opt_in} onChange={e => setFormData({...formData, email_opt_in: e.target.checked})} className="w-4 h-4 rounded accent-slate-900 border-slate-200" />
-              <span className="text-[11px] text-slate-500 font-medium">{t.optIn}</span>
-            </label>
+      <div className="pt-2 pb-1">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Kontaktdaten für Rückfragen</p>
+      </div>
 
-            <div className="space-y-3 pt-8">
-              <button onClick={handleSubmit} disabled={loading || !formData.contact_email} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-medium text-sm active:scale-95 transition-all disabled:bg-slate-100 disabled:text-slate-300">
-                {loading ? t.submitting : t.submitBtn}
-              </button>
-              <button onClick={() => setStep(2)} className="w-full text-[11px] font-medium text-slate-400 uppercase tracking-wider">{t.backToDetails}</button>
-            </div>
-          </div>
-        )}
+      <input 
+        type="email" 
+        placeholder={t.emailPlaceholder} 
+        className="w-full bg-white border border-slate-100 p-4 rounded-2xl text-sm outline-none focus:border-blue-500 transition-all shadow-sm" 
+        value={formData.contact_email} 
+        onChange={e => setFormData({...formData, contact_email: e.target.value})} 
+      />
+      
+      <input 
+        type="tel" 
+        placeholder={t.phonePlaceholder} 
+        className="w-full bg-white border border-slate-100 p-4 rounded-2xl text-sm outline-none focus:border-blue-500 transition-all shadow-sm" 
+        value={formData.contact_phone} 
+        onChange={e => setFormData({...formData, contact_phone: e.target.value})} 
+      />
+    </div>
+
+    <label className="flex items-center gap-3 cursor-pointer group">
+      <input 
+        type="checkbox" 
+        checked={formData.email_opt_in} 
+        onChange={e => setFormData({...formData, email_opt_in: e.target.checked})} 
+        className="w-4 h-4 rounded accent-slate-900 border-slate-200" 
+      />
+      <span className="text-[11px] text-slate-500 font-medium group-hover:text-slate-700 transition-colors">{t.optIn}</span>
+    </label>
+
+    <div className="space-y-3 pt-4">
+      <button 
+        onClick={handleSubmit} 
+//        {/* Button ist deaktiviert, wenn Name ODER Email fehlen */}
+        disabled={loading || !formData.contact_email || !formData.reporter_name} 
+        className="w-full bg-slate-900 text-white py-4 rounded-2xl font-medium text-sm active:scale-95 transition-all disabled:bg-slate-100 disabled:text-slate-300"
+      >
+        {loading ? t.submitting : t.submitBtn}
+      </button>
+      <button 
+        onClick={() => setStep(2)} 
+        className="w-full text-[11px] font-medium text-slate-400 uppercase tracking-wider hover:text-slate-600 transition-colors"
+      >
+        {t.backToDetails}
+      </button>
+    </div>
+  </div>
+)}
 
         {/* STEP 4: ERFOLG */}
         {step === 4 && (
