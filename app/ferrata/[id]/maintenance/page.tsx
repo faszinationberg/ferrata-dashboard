@@ -4,53 +4,139 @@ import { useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../../../lib/supabase';
 
+// Ranking für die Sortierung
+const priorityRank: Record<string, number> = {
+  'kritisch': 1,
+  'hoch': 2,
+  'mittel': 3,
+  'niedrig': 4
+};
+
 export default function MaintenanceCenter() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
 
+  // --- 1. STATES ---
   const [loading, setLoading] = useState(true);
   const [ferrata, setFerrata] = useState<any>(null);
   const [defects, setDefects] = useState<any[]>([]);
   const [userReports, setUserReports] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+
+  // Reparatur-Dokumentations States
+// Neue States für Reparatur
+const [repairTime, setRepairTime] = useState('');
+const [repairMaterial, setRepairMaterial] = useState('');
+const [repairReport, setRepairReport] = useState('');
+const [repairImages, setRepairImages] = useState<File[]>([]);
+const [uploading, setUploading] = useState(false);
+
+// Bild-Auswahl Handler
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      setRepairImages(prev => [...prev, ...files]);
+    }
+  };
+
+// Reparatur-Abschluss Funktion
+  const handleRepairComplete = async () => {
+    if (!selectedReport) return;
+    setUploading(true);
+    
+    try {
+      const uploadedUrls: string[] = [];
+
+      // 1. Bilder in Storage 'reports' hochladen
+      for (const file of repairImages) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `repair_${selectedReport.id}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('reports')
+          .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('reports')
+          .getPublicUrl(filePath);
+        
+        uploadedUrls.push(urlData.publicUrl);
+      }
+
+      // 2. Report in Datenbank aktualisieren
+      const { error: updateError } = await supabase
+        .from('reports')
+        .update({
+          repair_time: repairTime,
+          repair_material: repairMaterial,
+          repair_report: repairReport,
+          repair_image_urls: uploadedUrls,
+          resolved: true,
+          resolved_at: new Date().toISOString()
+        })
+        .eq('id', selectedReport.id);
+
+      if (updateError) throw updateError;
+
+      // 3. Historie schreiben
+      await supabase.from('maintenance_logs').insert([{
+        ferrata_id: id,
+        report_id: selectedReport.id,
+        type: 'Reparatur',
+        description: `REPARATUR: ${selectedReport.title || selectedReport.type}. Zeit: ${repairTime}. Material: ${repairMaterial}`,
+        date: new Date().toISOString().split('T')[0],
+        performed_by: 'Wartungsteam'
+      }]);
+
+      setActiveLightbox(null);
+      setSelectedReport(null);
+      setRepairImages([]);
+      setRepairTime('');
+      setRepairMaterial('');
+      setRepairReport('');
+      fetchData();
+      alert("Reparatur erfolgreich dokumentiert!");
+
+    } catch (err: any) {
+      alert("Fehler beim Speichern: " + err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
   
-  // Oben bei den States hinzufügen:
-const [adminComment, setAdminComment] = useState('');
+  // Modus-State: Setup (Zahnrad) oder Reparatur (Schlüssel)
+  const [editMode, setEditMode] = useState<'admin' | 'repair'>('admin');
 
-const handleAction = async (action: 'verify' | 'discard') => {
-  if (!selectedReport) return;
-
-  if (action === 'discard') {
-    if (!confirm("Meldung wirklich löschen?")) return;
-    const { error } = await supabase.from('reports').delete().eq('id', selectedReport.id);
-    if (!error) fetchData();
-  } else {
-    // Kommentar an Beschreibung hängen, falls vorhanden
-    const finalDescription = adminComment 
-      ? `${selectedReport.description} | INTERN: ${adminComment}` 
-      : selectedReport.description;
-
-    const { error } = await supabase.from('reports')
-      .update({ 
-        verified: true, 
-        priority: tempPrio || 'orange',
-        description: finalDescription // Hier wird die Beschreibung aktualisiert
-      })
-      .eq('id', selectedReport.id);
-
-    if (!error) fetchData();
-  }
-  
-  // Reset
-  setSelectedReport(null);
-  setTempPrio(null);
-  setAdminComment('');
-};
-
-  // Lightbox-States
+  // Lightbox & Admin States
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [activeLightbox, setActiveLightbox] = useState<'admin' | 'repair' | null>(null);
   const [tempPrio, setTempPrio] = useState<string | null>(null);
+  const [adminTitle, setAdminTitle] = useState('');
+  const [adminComment, setAdminComment] = useState('');
+  
+  // Galerie States
+  const [fullScreenImage, setFullScreenImage] = useState<string | null>(null);
+  const [currentImgIndex, setCurrentImgIndex] = useState(0);
+  const [isGalleryTopo, setIsGalleryTopo] = useState(false);
+
+  // --- 2. DERIVED CONSTANTS ---
+  const topoUrl = ferrata?.topo_url || null;
+
+  // --- 3. HELPER FUNCTIONS ---
+  const openGallery = (index: number | 'topo') => {
+    if (index === 'topo') {
+      setFullScreenImage(topoUrl);
+      setIsGalleryTopo(true);
+    } else if (selectedReport?.image_urls) {
+      setFullScreenImage(selectedReport.image_urls[index as number]);
+      setCurrentImgIndex(index as number);
+      setIsGalleryTopo(false);
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -62,16 +148,39 @@ const handleAction = async (action: 'verify' | 'discard') => {
     }
   };
 
+  const getPriorityStyles = (priority: string) => {
+    const p = priority?.toLowerCase();
+    switch (p) {
+      case 'kritisch': 
+        return { bar: 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]', badge: 'bg-red-50 text-red-600 border-red-100', color: 'bg-red-500' };
+      case 'hoch': 
+        return { bar: 'bg-orange-500', badge: 'bg-orange-50 text-orange-600 border-orange-100', color: 'bg-orange-500' };
+      case 'mittel': 
+        return { bar: 'bg-yellow-400', badge: 'bg-yellow-50 text-yellow-700 border-yellow-100', color: 'bg-yellow-400' };
+      case 'niedrig': 
+        return { bar: 'bg-slate-200', badge: 'bg-white text-slate-400 border-slate-200', color: 'bg-white' };
+      default: 
+        return { bar: 'bg-slate-300', badge: 'bg-slate-50 text-slate-400 border-slate-200', color: 'bg-slate-100' };
+    }
+  };
+
+  // --- 4. DATA FETCHING ---
   const fetchData = async () => {
     setLoading(true);
-    const { data: ferrataData } = await supabase.from('ferratas').select('name, status').eq('id', id).single();
-    // Wir holen alle nicht erledigten Reports
+    const { data: ferrataData } = await supabase.from('ferratas').select('name, status, topo_url').eq('id', id).single();
     const { data: reportsData } = await supabase.from('reports').select('*').eq('ferrata_id', id).eq('resolved', false).order('created_at', { ascending: false });
     const { data: historyData } = await supabase.from('maintenance_logs').select('*').eq('ferrata_id', id).order('date', { ascending: false });
 
     if (ferrataData) setFerrata(ferrataData);
     if (reportsData) {
-      setDefects(reportsData.filter(r => r.verified === true));
+      const verifiedReports = reportsData.filter(r => r.verified === true);
+      const sortedDefects = [...verifiedReports].sort((a, b) => {
+        const rankA = priorityRank[a.priority?.toLowerCase()] || 99;
+        const rankB = priorityRank[b.priority?.toLowerCase()] || 99;
+        if (rankA === rankB) return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        return rankA - rankB;
+      });
+      setDefects(sortedDefects);
       setUserReports(reportsData.filter(r => r.verified === false));
     }
     if (historyData) setHistory(historyData);
@@ -80,19 +189,55 @@ const handleAction = async (action: 'verify' | 'discard') => {
 
   useEffect(() => { if (id) fetchData(); }, [id]);
 
+  useEffect(() => {
+    if (selectedReport) {
+      setAdminTitle(selectedReport.title || selectedReport.type || "");
+      setAdminComment(selectedReport.internal_comment || "");
+      setTempPrio(selectedReport.priority || null);
+    }
+  }, [selectedReport]);
+
+  // --- 5. ACTIONS ---
+  const handleAction = async (action: 'verify' | 'discard') => {
+    if (!selectedReport) return;
+
+    if (action === 'discard') {
+      if (!confirm("Eintrag wirklich entfernen?")) return;
+      const { error } = await supabase.from('reports').delete().eq('id', selectedReport.id);
+      if (!error) {
+        await fetchData();
+        setSelectedReport(null);
+      }
+    } else {
+      if (!adminTitle || !tempPrio) {
+        alert("Bitte Titel und Priorität festlegen.");
+        return;
+      }
+      const { error } = await supabase.from('reports').update({ 
+        verified: true, 
+        priority: tempPrio,
+        title: adminTitle,
+        internal_comment: adminComment,
+        verified_at: new Date().toISOString()
+      }).eq('id', selectedReport.id);
+
+      if (error) {
+        console.error("Speicherfehler:", error);
+        alert("Fehler beim Speichern: " + error.message);
+      } else {
+        await fetchData();
+        setSelectedReport(null);
+      }
+    }
+  };
+
   const resolveDefect = async (defect: any) => {
+    if (!confirm("Mangel wirklich entfernen?")) return;
     setLoading(true);
     try {
-      await supabase.from('reports').update({ resolved: true, resolved_at: new Date().toISOString() }).eq('id', defect.id);
-      await supabase.from('maintenance_logs').insert([{
-        ferrata_id: id,
-        report_id: defect.id,
-        type: 'Reparatur',
-        description: `BEHOBEN: ${defect.type} - ${defect.description}`,
-        date: new Date().toISOString().split('T')[0],
-        performed_by: 'Wartungsteam'
-      }]);
+      await supabase.from('reports').delete().eq('id', defect.id);
       fetchData();
+      setSelectedReport(null);
     } catch (err: any) { alert(err.message); } finally { setLoading(false); }
   };
 
@@ -101,231 +246,295 @@ const handleAction = async (action: 'verify' | 'discard') => {
     if (!error) setFerrata((prev: any) => ({ ...prev, [field]: value }));
   };
 
+  const showNextImage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!selectedReport?.image_urls) return;
+    const nextIndex = (currentImgIndex + 1) % selectedReport.image_urls.length;
+    setCurrentImgIndex(nextIndex);
+    setFullScreenImage(selectedReport.image_urls[nextIndex]);
+  };
+
+  const showPrevImage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!selectedReport?.image_urls) return;
+    const prevIndex = (currentImgIndex - 1 + selectedReport.image_urls.length) % selectedReport.image_urls.length;
+    setCurrentImgIndex(prevIndex);
+    setFullScreenImage(selectedReport.image_urls[prevIndex]);
+  };
+
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-white"><div className="w-6 h-6 border-2 border-slate-100 border-t-blue-600 rounded-full animate-spin"></div></div>;
 
   return (
     <main className="min-h-screen bg-[#fafafa] text-slate-900 font-sans pb-32">
       <div className="max-w-4xl mx-auto px-6 py-12 space-y-12">
         
-        {/* HEADER */}
         <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-slate-100 pb-8">
           <div>
-            <button onClick={() => router.push('/')} className="text-slate-400 hover:text-slate-900 text-xs font-medium mb-4 block">
-              ← Dashboard
-            </button>
+            <button onClick={() => router.push('/')} className="text-slate-400 hover:text-slate-900 text-xs font-medium mb-4 block">← Dashboard</button>
             <h1 className="text-3xl font-semibold tracking-tight">{ferrata?.name}</h1>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-500 mt-1">Wartungs-Zentrale - IM AUFBAU - NOCH VIEL ARBEIT</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-500 mt-1 italic">Wartungs-Zentrale</p>
           </div>
-          <Badge 
-              label="Klettersteig-Status" 
-              value={ferrata?.status} 
-              onEdit={(v: string) => updateField('status', v)} 
-              color={getStatusColor(ferrata?.status)} 
-          />
+          <Badge label="Klettersteig-Status" value={ferrata?.status} onEdit={(v: string) => updateField('status', v)} color={getStatusColor(ferrata?.status)} />
         </header>
 
-        <div className="max-w-4xl mx-auto px-6 py-12 space-y-8">
-  
-  {/* 1. MODUL: USER FEED (POSTEINGANG) */}
-  <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
-    <div className="flex justify-between items-center border-b border-slate-50 pb-6">
-      <div>
-        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">User-Feed & Meldungen</h3>
-        <p className="text-[10px] text-orange-500 mt-1 font-bold uppercase tracking-wider">
-          {userReports.length} Ungeprüfte Einträge
-        </p>
-      </div>
-      <div className="bg-orange-50 text-orange-600 px-3 py-1 rounded-full text-[10px] font-black">NEU</div>
-    </div>
-
-    <div className="grid gap-3">
-      {userReports.length === 0 && (
-        <div className="text-center py-10 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
-          <p className="text-xs text-slate-300 italic font-light">Keine neuen Meldungen im Eingang.</p>
-        </div>
-      )}
-      {userReports.map((r) => (
-        <div 
-          key={r.id} 
-          onClick={() => setSelectedReport(r)}
-          className="bg-slate-50 border border-slate-100 p-5 rounded-3xl shadow-sm hover:border-blue-300 transition-all cursor-pointer group flex items-center justify-between"
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-white rounded-2xl overflow-hidden border border-slate-100 flex-shrink-0 flex items-center justify-center">
-              {r.image_urls?.[0] ? (
-                <img src={r.image_urls[0]} className="w-full h-full object-cover" alt="Vorschau" />
-              ) : (
-                <span className="text-[10px] text-slate-300 font-bold uppercase">INFO</span>
-              )}
-            </div>
-            <div>
-              <p className="text-xs text-slate-700">
-                <span className="font-bold text-blue-600">{r.reporter_name || 'Anonym'}</span> 
-                <span className="text-slate-400 mx-1">•</span>
-                <span className="text-slate-500">{new Date(r.created_at).toLocaleDateString()}</span>
-              </p>
-              <p className="text-[11px] text-slate-500 line-clamp-1 italic mt-0.5">"{r.description}"</p>
-            </div>
-          </div>
-          <div className="bg-white p-2 rounded-xl text-slate-300 group-hover:text-blue-500 group-hover:shadow-sm transition-all">
-            <span className="text-sm">→</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  </section>
-
-
-{/* 2. MODUL: MÄNGEL (OFFIZIELL) */}
-<section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
-  <div className="flex justify-between items-center border-b border-slate-50 pb-6">
-    <div>
-      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Offizielle Mängelliste</h3>
-      <p className="text-[10px] text-red-500 mt-1 font-bold uppercase tracking-wider">
-        {defects.length} Offene Mängel
-      </p>
-    </div>
-    
-    {/* Neuer Button zum Erstellen eines Mangels */}
-    <button 
-      onClick={() => router.push(`/ferrata/${id}/defect`)}
-      className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all border border-blue-100 shadow-sm"
-    >
-      <span>MANGEL ERFASSEN</span>
-      <span className="text-sm">+</span>
-    </button>
-  </div>
-    
-    <div className="grid gap-3">
-      {defects.length === 0 && (
-        <div className="text-center py-10 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
-          <p className="text-xs text-slate-300 italic font-light">Aktuell keine offiziellen Mängel dokumentiert.</p>
-        </div>
-      )}
-      {defects.map((d) => (
-        <div key={d.id} className="bg-slate-50 border border-slate-100 rounded-3xl p-6 flex items-center gap-6 shadow-sm hover:border-blue-200 transition-all">
-          <div className={`w-1.5 h-12 rounded-full flex-shrink-0 ${d.priority === 'kritisch' || d.priority === 'hoch' ? 'bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.2)]' : 'bg-orange-400'}`}></div>
-          <div className="flex-1">
-            <div className="flex gap-2 text-[9px] font-bold uppercase text-slate-400 mb-1">
-              <span className="text-slate-900">{d.type}</span>
-              {d.location && <span>📍 {d.location}</span>}
-            </div>
-            <p className="text-sm font-medium text-slate-700 leading-snug">{d.description}</p>
-          </div>
-          <button 
-            onClick={() => resolveDefect(d)} 
-            className="px-5 py-2.5 rounded-xl text-[10px] font-bold bg-white text-emerald-600 border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all shadow-sm uppercase tracking-wider"
-          >
-            Behoben ✓
-          </button>
-        </div>
-      ))}
-    </div>
-  </section>
-
-  {/* 3. MODUL: WARTUNGSHISTORIE */}
-  <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-8">
-    <div className="border-b border-slate-50 pb-6">
-      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Wartungshistorie</h3>
-      <p className="text-[10px] text-blue-500 mt-1 font-bold uppercase tracking-wider">
-        Archivierte Maßnahmen
-      </p>
-    </div>
-
-    <div className="space-y-4 border-l-2 border-slate-100 ml-4 pl-8 relative">
-      {history.length === 0 && <p className="text-xs text-slate-300 italic -ml-4">Noch keine Einträge vorhanden.</p>}
-      {history.map((log, i) => (
-        <div key={i} className="relative mb-8 last:mb-0">
-          {/* Timeline Dot */}
-          <div className="absolute -left-[41px] top-1 w-4 h-4 rounded-full bg-white border-4 border-blue-500 shadow-sm"></div>
-          
-          <div className="bg-slate-50 border border-slate-50 rounded-3xl p-5 shadow-sm">
-            <div className="flex items-center gap-3 mb-2">
-              <time className="text-[10px] font-black text-blue-500 uppercase tracking-tighter">
-                {new Date(log.date).toLocaleDateString('de-DE')}
-              </time>
-              <span className="text-[9px] font-black text-slate-400 uppercase bg-white border border-slate-100 px-2 py-0.5 rounded-lg shadow-sm">
-                {log.type}
-              </span>
-            </div>
-            <p className="text-sm font-medium text-slate-700 leading-relaxed">{log.description}</p>
-            <p className="text-[9px] text-slate-400 mt-2 font-bold uppercase tracking-widest">
-              Techniker: {log.performed_by || 'Wartungsteam'}
-            </p>
-          </div>
-        </div>
-      ))}
-    </div>
-  </section>
-</div>
-
-      </div>
-
-      {/* LIGHTBOX / REPORT MODAL */}
-      {selectedReport && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="p-8 overflow-y-auto space-y-8">
-              <div className="flex justify-between items-start">
-                <h2 className="text-xl font-bold">Meldung prüfen</h2>
-                <button onClick={() => setSelectedReport(null)} className="bg-slate-50 p-2 rounded-full text-slate-400 hover:text-slate-600 transition-colors">✕</button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-6 bg-slate-50 p-6 rounded-3xl">
-                <div>
-                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Melder</p>
-                  <p className="text-sm font-bold text-slate-700">{selectedReport.reporter_name}</p>
-                </div>
-                <div>
-                  <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Kontakt</p>
-                  <p className="text-sm text-slate-600">{selectedReport.reporter_email || selectedReport.reporter_phone || '-'}</p>
-                </div>
-              </div>
-
+        <div className="space-y-8">
+          {/* 1. MODUL: USER FEED */}
+          <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
+            <div className="flex justify-between items-center border-b border-slate-50 pb-6">
               <div>
-                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1">Beschreibung</p>
-                <p className="text-sm text-slate-600 italic leading-relaxed">"{selectedReport.description}"</p>
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">User-Feed & Meldungen</h3>
+                <p className="text-[10px] text-orange-500 mt-1 font-bold uppercase tracking-wider">{userReports.length} Ungeprüfte Einträge</p>
+              </div>
+              {userReports.length > 0 && <div className="bg-orange-50 text-orange-600 px-3 py-1 rounded-full text-[10px] font-black">NEU</div>}
+            </div>
+            <div className="grid gap-3">
+              {userReports.length === 0 && <p className="text-center py-10 bg-slate-50 rounded-3xl text-xs text-slate-300 italic font-light">Keine neuen Meldungen.</p>}
+              {userReports.map((r) => (
+                <div key={r.id} onClick={() => { setSelectedReport(r); setActiveLightbox('admin'); }} className="bg-slate-50 border border-slate-100 p-5 rounded-3xl shadow-sm hover:border-blue-300 transition-all cursor-pointer group flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-white rounded-2xl overflow-hidden border border-slate-100 flex-shrink-0 flex items-center justify-center text-[10px] text-slate-300 font-bold uppercase">
+                      {r.image_urls?.[0] ? <img src={r.image_urls[0]} className="w-full h-full object-cover" /> : "INFO"}
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-700 font-bold text-blue-600">{r.reporter_name || 'Anonym'} <span className="text-slate-400 font-normal mx-1">• {new Date(r.created_at).toLocaleDateString()}</span></p>
+                      <p className="text-[11px] text-slate-500 line-clamp-1 italic mt-0.5">"{r.description}"</p>
+                    </div>
+                  </div>
+                  <div className="bg-white p-2 rounded-xl text-slate-300 group-hover:text-blue-500 transition-all">→</div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* 2. MODUL: MÄNGELLISTE */}
+          <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
+            <div className="flex justify-between items-center border-b border-slate-50 pb-6">
+              <div>
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Offizielle Mängelliste</h3>
+                <p className="text-[10px] text-red-500 mt-1 font-bold uppercase tracking-wider">{defects.length} Offene Mängel</p>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                {/* MODUS UMSCHALTER */}
+                <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
+                  <button onClick={() => setEditMode('admin')} className={`p-2 px-4 rounded-xl transition-all flex items-center gap-2 ${editMode === 'admin' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}>
+                    <span className="text-sm">⚙️</span>
+                  </button>
+                  <button onClick={() => setEditMode('repair')} className={`p-2 px-4 rounded-xl transition-all flex items-center gap-2 ${editMode === 'repair' ? 'bg-white shadow-sm text-orange-600' : 'text-slate-400'}`}>
+                    <span className="text-sm">🔧</span>
+                  </button>
+                </div>
+                <button onClick={() => router.push(`/ferrata/${id}/defect`)} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all border border-blue-100 shadow-sm">MANGEL ERFASSEN +</button>
+              </div>
+            </div>
+            <div className="grid gap-3">
+              {defects.length === 0 && <p className="text-center py-10 bg-slate-50 rounded-3xl text-xs text-slate-300 italic font-light">Keine offiziellen Mängel.</p>}
+              {defects.map((d) => {
+                const styles = getPriorityStyles(d.priority);
+                return (
+                  <div key={d.id} onClick={() => { setSelectedReport(d); setActiveLightbox(editMode); }} className="bg-slate-50 border border-slate-100 rounded-3xl p-6 flex items-center gap-6 hover:border-blue-300 transition-all cursor-pointer group">
+                    <div className={`w-1.5 h-12 rounded-full flex-shrink-0 ${styles.bar}`}></div>
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 items-center gap-4">
+                      <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Mangel</p><h4 className="text-sm font-black text-slate-900 line-clamp-1">{d.title || d.type}</h4></div>
+                      <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Erfasst am</p><p className="text-xs font-bold text-slate-600">{new Date(d.created_at).toLocaleDateString('de-DE')}</p></div>
+                      <div className="md:text-right"><span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border shadow-sm ${styles.badge}`}>{d.priority || 'unknown'}</span></div>
+                    </div>
+                    <div className="text-slate-200 text-xl">→</div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* 3. MODUL: HISTORY */}
+          <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-8">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 border-b pb-6">Wartungshistorie</h3>
+            <div className="space-y-4 border-l-2 border-slate-100 ml-4 pl-8 relative">
+              {history.map((log, i) => (
+                <div key={i} className="relative mb-8 last:mb-0">
+                  <div className="absolute -left-[41px] top-1 w-4 h-4 rounded-full bg-white border-4 border-blue-500 shadow-sm"></div>
+                  <div className="bg-slate-50 border border-slate-50 rounded-3xl p-5 shadow-sm">
+                    <time className="text-[10px] font-black text-blue-500 uppercase">{new Date(log.date).toLocaleDateString('de-DE')}</time>
+                    <p className="text-sm font-medium text-slate-700 mt-1">{log.description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+
+      {/* LIGHTBOX ADMIN / SETUP */}
+      {activeLightbox === 'admin' && selectedReport && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-3xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col">
+            <div className="p-8 border-b border-slate-50 flex justify-between items-start bg-white z-10">
+              <div>
+                <h2 className="text-xl font-bold tracking-tight">{selectedReport.verified ? "Eintrag bearbeiten" : "Meldung prüfen"}</h2>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[10px] text-slate-400 font-black">
+                  {new Date(selectedReport.created_at).toLocaleDateString()} • {selectedReport.reporter_name}
+                  {(selectedReport.contact || selectedReport.reporter_email) && <p className="text-[9px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">✉️ {selectedReport.contact || selectedReport.reporter_email}</p>}
+                  {selectedReport.reporter_phone && <p className="text-[9px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-full">📞 {selectedReport.reporter_phone}</p>}
+                </div>
+              </div>
+              <button onClick={() => setActiveLightbox(null)} className="text-slate-300 hover:text-slate-900 text-3xl transition-colors leading-none">×</button>
+            </div>
+
+            <div className="overflow-y-auto p-8 space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Schadensfotos</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {selectedReport.image_urls?.map((url: string, idx: number) => (
+                      <div key={idx} onClick={() => openGallery(idx)} className="rounded-3xl overflow-hidden border border-slate-100 bg-slate-50 aspect-square cursor-zoom-in shadow-sm"><img src={url} className="w-full h-full object-cover" /></div>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Verortung im Topo</p>
+                  <div className="flex justify-center bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden">
+                    <div onClick={() => openGallery('topo')} className="relative inline-block cursor-zoom-in">
+                      <img src={topoUrl} className="max-h-[300px] w-auto object-contain" alt="Topo" />
+                      {selectedReport.topo_x && <div className="absolute w-2.5 h-2.5 bg-red-600 border border-white rounded-full -translate-x-1/2 -translate-y-1/2 shadow-xl" style={{ left: `${selectedReport.topo_x}%`, top: `${selectedReport.topo_y}%` }} />}
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {selectedReport.image_urls?.length > 0 && (
-                <div className="flex gap-3 overflow-x-auto pb-2">
-                  {selectedReport.image_urls.map((img: string, i: number) => (
-                    <img key={i} src={img} className="h-40 w-64 object-cover rounded-3xl border border-slate-100" />
-                  ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-slate-50 p-5 rounded-[2rem] border border-slate-100">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Kategorie & Ort</p>
+                  <div className="flex items-center gap-2 mb-2"><span className="text-lg">{selectedReport.type === 'Anchor' ? '🔩' : '🪢'}</span><p className="text-sm font-bold text-slate-800 uppercase">{selectedReport.type}</p></div>
+                  <p className="text-xs font-medium text-slate-600">📍 {selectedReport.location || 'N/A'}</p>
                 </div>
-              )}
+                <div className="bg-slate-50 p-5 rounded-[2rem] border border-slate-100">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Geodaten & Höhe</p>
+                  <p className="text-[10px] font-mono font-bold text-slate-700 bg-white/50 px-2 py-1 rounded-lg border border-slate-200 inline-block">{selectedReport.coordinates || 'N/A'}</p>
+                  <p className="text-[10px] text-blue-600 font-black block mt-1 uppercase">{selectedReport.altitude ? `${selectedReport.altitude} M ü.M.` : 'N/A'}</p>
+                </div>
+              </div>
 
-              <div className="space-y-2">
-  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-    Interner Kommentar / Anweisung
-  </p>
-  <textarea 
-    placeholder="Zusätzliche Infos für das Wartungsteam..."
-    value={adminComment}
-    onChange={(e) => setAdminComment(e.target.value)}
-    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs min-h-[80px] focus:border-blue-500 outline-none transition-all"
-  />
-</div>
+              <div className="bg-blue-50/30 border border-blue-100 rounded-[2rem] p-6 text-sm text-slate-700 italic leading-relaxed">"{selectedReport.description}"</div>
 
-              <div className="pt-8 border-t border-slate-100 space-y-6">
-                <p className="text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">Aktion auswählen</p>
+              <div className="space-y-6 pt-4 border-t border-slate-100">
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest ml-4">Offizieller Titel *</label>
+                    <input type="text" value={adminTitle} onChange={(e) => setAdminTitle(e.target.value)} className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold focus:bg-white focus:border-blue-500 outline-none transition-all" placeholder="Titel..." />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Interne Anweisung</label>
+                    <textarea value={adminComment} onChange={(e) => setAdminComment(e.target.value)} className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm min-h-[80px] focus:bg-white focus:border-blue-500 outline-none transition-all" placeholder="Anweisung..." />
+                  </div>
+                </div>
                 <div className="grid grid-cols-4 gap-2">
-                  {['niedrig', 'mittel', 'hoch', 'kritisch'].map((prio) => (
-                    <button 
-                      key={prio} 
-                      onClick={() => setTempPrio(prio)}
-                      className={`py-3 rounded-2xl text-[10px] font-bold uppercase transition-all border ${tempPrio === prio ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-400'}`}
-                    >
-                      {prio}
-                    </button>
-                  ))}
-                </div>
-                <div className="grid grid-cols-2 gap-4 mt-2">
-                  <button onClick={() => handleAction('discard')} className="py-4 bg-white border border-slate-200 text-slate-400 rounded-2xl text-[10px] font-bold uppercase tracking-widest hover:text-red-500">Verwerfen</button>
-                  <button onClick={() => handleAction('verify')} disabled={!tempPrio} className="py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-bold uppercase tracking-widest shadow-xl shadow-blue-100 disabled:bg-slate-100 transition-all">Übernehmen</button>
+                  {['niedrig', 'mittel', 'hoch', 'kritisch'].map((p) => {
+                     const s = getPriorityStyles(p);
+                     return <button key={p} onClick={() => setTempPrio(p)} className={`py-3 rounded-2xl text-[9px] font-black uppercase border transition-all ${tempPrio === p ? `${s.bar} text-white shadow-xl scale-105` : 'bg-white border-slate-50 text-slate-300'}`}>{p}</button>
+                  })}
                 </div>
               </div>
             </div>
+
+            <div className="p-8 border-t border-slate-50 bg-slate-50 flex gap-4">
+              <button onClick={() => selectedReport.verified ? resolveDefect(selectedReport) : handleAction('discard')} className="flex-1 py-4 text-[10px] font-black text-red-400 hover:text-red-600 uppercase tracking-widest transition-all">{selectedReport.verified ? "ENTFERNEN" : "Löschen"}</button>
+              <button onClick={() => handleAction('verify')} disabled={!adminTitle.trim() || !tempPrio} className={`flex-[2] py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${(!adminTitle.trim() || !tempPrio) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-600 text-white shadow-blue-100'}`}>{selectedReport.verified ? "AKTUALISIEREN" : "ÜBERNEHMEN"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LIGHTBOX REPAIR / WORK */}
+      {activeLightbox === 'repair' && selectedReport && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col border-2 border-orange-500/20">
+            
+            {/* Header */}
+            <div className="p-8 border-b border-orange-50 flex justify-between items-start bg-orange-50/30">
+              <div>
+                <h2 className="text-xl font-bold text-orange-900 flex items-center gap-2"><span>🔧</span> Reparatur dokumentieren</h2>
+                <p className="text-[10px] text-orange-600 font-black uppercase mt-1 tracking-widest">Mangel: {selectedReport.title || selectedReport.type}</p>
+              </div>
+              <button onClick={() => setActiveLightbox(null)} className="text-3xl text-orange-300">×</button>
+            </div>
+
+            <div className="overflow-y-auto p-8 space-y-8 bg-white">
+              {/* Eingabefelder */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Arbeitszeit</label>
+                    <input type="text" value={repairTime} onChange={(e) => setRepairTime(e.target.value)} placeholder="z.B. 1.5 Std" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-orange-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Material</label>
+                    <textarea value={repairMaterial} onChange={(e) => setRepairMaterial(e.target.value)} placeholder="Verwendetes Material..." className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold min-h-[100px] focus:border-orange-500 outline-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Reparaturbericht</label>
+                  <textarea value={repairReport} onChange={(e) => setRepairReport(e.target.value)} placeholder="Was wurde genau gemacht?" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold min-h-[188px] focus:border-orange-500 outline-none" />
+                </div>
+              </div>
+
+              {/* BILDER UPLOADER */}
+              <div className="space-y-4">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Ergebnis-Fotos (Nachher)</p>
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {/* Vorhandene Auswahl-Vorschau */}
+                  {repairImages.map((file, idx) => (
+                    <div key={idx} className="relative aspect-square rounded-3xl overflow-hidden border border-orange-100 group">
+                      <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" alt="Vorschau" />
+                      <button 
+                        onClick={() => setRepairImages(prev => prev.filter((_, i) => i !== idx))}
+                        className="absolute top-2 right-2 bg-red-500 text-white w-6 h-6 rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ×
+                      </button>
+                    </div>
+            ))}
+
+            {/* Upload Button */}
+            <label className="aspect-square border-2 border-dashed border-orange-200 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:bg-orange-50 transition-all text-orange-400 hover:text-orange-600">
+              <input type="file" multiple accept="image/*" className="hidden" onChange={handleImageSelect} />
+              <span className="text-3xl mb-1">📸</span>
+              <span className="text-[9px] font-black uppercase">Foto hinzufügen</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="p-8 border-t border-slate-50 bg-slate-50 flex gap-4">
+        <button onClick={() => setActiveLightbox(null)} className="flex-1 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Abbrechen</button>
+        <button 
+          onClick={handleRepairComplete} 
+          disabled={uploading || !repairReport}
+          className={`flex-[2] py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${
+            uploading ? 'bg-slate-300 animate-pulse' : 'bg-orange-600 text-white shadow-orange-100'
+          }`}
+        >
+          {uploading ? 'Wird gespeichert...' : 'Reparatur abschließen'}
+        </button>
+      </div>
+    </div>
+  </div>
+      )}
+
+      {/* FULLSCREEN IMAGE OVERLAY */}
+      {fullScreenImage && (
+        <div className="fixed inset-0 z-[200] bg-slate-900/98 flex items-center justify-center p-4 animate-in fade-in" onClick={() => {setFullScreenImage(null); setIsGalleryTopo(false);}}>
+          <button className="absolute top-6 right-6 text-white text-5xl font-light p-4 z-[210] hover:text-blue-400 transition-colors">×</button>
+          {!isGalleryTopo && selectedReport?.image_urls?.length > 1 && (
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-between px-4 md:px-10 pointer-events-none">
+               <button onClick={(e) => { e.stopPropagation(); const prev = (currentImgIndex - 1 + selectedReport.image_urls.length) % selectedReport.image_urls.length; setCurrentImgIndex(prev); setFullScreenImage(selectedReport.image_urls[prev]); }} className="pointer-events-auto w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-xl">←</button>
+               <button onClick={(e) => { e.stopPropagation(); const next = (currentImgIndex + 1) % selectedReport.image_urls.length; setCurrentImgIndex(next); setFullScreenImage(selectedReport.image_urls[next]); }} className="pointer-events-auto w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-xl">→</button>
+            </div>
+          )}
+          <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
+            <img src={fullScreenImage} className="max-w-[95vw] max-h-[85vh] object-contain shadow-2xl rounded-lg border border-white/10" alt="Vollbild" />
+            {isGalleryTopo && selectedReport?.topo_x && <div className="absolute w-3 h-3 bg-red-600 border-2 border-white rounded-full -translate-x-1/2 -translate-y-1/2 shadow-2xl" style={{ left: `${selectedReport.topo_x}%`, top: `${selectedReport.topo_y}%` }} />}
           </div>
         </div>
       )}
@@ -333,24 +542,15 @@ const handleAction = async (action: 'verify' | 'discard') => {
   );
 }
 
-// Badge Komponente bleibt gleich wie in deinem Entwurf (nur leicht gesäubert)
 function Badge({ label, value, color, onEdit }: any) {
   const [isEdit, setIsEdit] = useState(false);
-  const statusOptions = [
-    { label: 'Geöffnet', value: 'open' },
-    { label: 'Gesperrt', value: 'closed' },
-    { label: 'Gesperrt - Wartung', value: 'maintenance' },
-    { label: 'Winterpause', value: 'winter' },
-    { label: 'Unbekannt', value: 'unknown' }
-  ];
+  const statusOptions = [{ label: 'Geöffnet', value: 'open' }, { label: 'Gesperrt', value: 'closed' }, { label: 'Wartung', value: 'maintenance' }, { label: 'Winterpause', value: 'winter' }, { label: 'Unbekannt', value: 'unknown' }];
   return (
     <div className="relative inline-block">
       <div onClick={() => setIsEdit(!isEdit)} className={`px-5 py-3 rounded-2xl min-w-[180px] transition-all border shadow-sm flex flex-col items-center cursor-pointer hover:border-blue-400 ${color}`}>
         <p className="text-[8px] font-bold uppercase opacity-50 mb-1 tracking-[0.2em]">{label}</p>
-        <div className="flex items-center justify-center w-full relative">
-          <p className="text-sm font-bold uppercase tracking-tight leading-none">
-            {statusOptions.find(o => o.value === value)?.label || value}
-          </p>
+        <div className="flex items-center justify-center w-full relative text-sm font-bold uppercase">
+          {statusOptions.find(o => o.value === value)?.label || value}
           <span className="text-[10px] opacity-30 absolute right-0">▾</span>
         </div>
       </div>
@@ -359,10 +559,7 @@ function Badge({ label, value, color, onEdit }: any) {
           <div className="fixed inset-0 z-40" onClick={() => setIsEdit(false)}></div>
           <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
             {statusOptions.map((opt) => (
-              <button key={opt.value} className={`w-full py-4 px-4 text-[11px] font-bold uppercase border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors ${value === opt.value ? 'text-blue-600 bg-blue-50' : 'text-slate-600'}`}
-                onClick={() => { onEdit(opt.value); setIsEdit(false); }}>
-                {opt.label}
-              </button>
+              <button key={opt.value} className={`w-full py-4 px-4 text-[11px] font-bold uppercase border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors ${value === opt.value ? 'text-blue-600 bg-blue-50' : 'text-slate-600'}`} onClick={() => { onEdit(opt.value); setIsEdit(false); }}>{opt.label}</button>
             ))}
           </div>
         </>

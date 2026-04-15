@@ -401,9 +401,7 @@ export default function MobileUserReport() {
             <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto text-2xl">✓</div>
             <h2 className="text-2xl font-semibold tracking-tight">{t.successTitle}</h2>
             <p className="text-slate-400 text-sm font-light leading-relaxed">{t.successText}</p>
-            <button onClick={() => router.push(`/ferrata/${id}`)} className="bg-slate-900 text-white px-12 py-4 rounded-2xl font-medium text-sm shadow-xl shadow-slate-200">
-              {t.finish}
-            </button>
+
           </div>
         )}
       </div>
