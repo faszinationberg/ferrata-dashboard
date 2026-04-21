@@ -4,6 +4,9 @@ import { useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../../../lib/supabase';
 
+import { CloudStatusBadge } from '../../../components/CloudStatusBadge';
+import { useAuth } from '../../../hooks/useAuth';
+
 // Ranking für die Sortierung
 const priorityRank: Record<string, number> = {
   'kritisch': 1,
@@ -17,97 +20,23 @@ export default function MaintenanceCenter() {
   const params = useParams();
   const id = params.id as string;
 
+  // Nutze den Auth-Hook
+  const { userRole, userEmail, loading: authLoading } = useAuth();
+
   // --- 1. STATES ---
   const [loading, setLoading] = useState(true);
   const [ferrata, setFerrata] = useState<any>(null);
-  const [defects, setDefects] = useState<any[]>([]);
-  const [userReports, setUserReports] = useState<any[]>([]);
+  const [defects, setDefects] = useState<any[]>([]); // Jetzt aus Tabelle 'defects'
+  const [userReports, setUserReports] = useState<any[]>([]); // Jetzt nur un-verifizierte aus 'reports'
   const [history, setHistory] = useState<any[]>([]);
 
   // Reparatur-Dokumentations States
-// Neue States für Reparatur
-const [repairTime, setRepairTime] = useState('');
-const [repairMaterial, setRepairMaterial] = useState('');
-const [repairReport, setRepairReport] = useState('');
-const [repairImages, setRepairImages] = useState<File[]>([]);
-const [uploading, setUploading] = useState(false);
+  const [repairTime, setRepairTime] = useState('');
+  const [repairMaterial, setRepairMaterial] = useState('');
+  const [repairReport, setRepairReport] = useState('');
+  const [repairImages, setRepairImages] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
 
-// Bild-Auswahl Handler
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const files = Array.from(e.target.files);
-      setRepairImages(prev => [...prev, ...files]);
-    }
-  };
-
-// Reparatur-Abschluss Funktion
-  const handleRepairComplete = async () => {
-    if (!selectedReport) return;
-    setUploading(true);
-    
-    try {
-      const uploadedUrls: string[] = [];
-
-      // 1. Bilder in Storage 'reports' hochladen
-      for (const file of repairImages) {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
-        const filePath = `repair_${selectedReport.id}/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('reports')
-          .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data: urlData } = supabase.storage
-          .from('reports')
-          .getPublicUrl(filePath);
-        
-        uploadedUrls.push(urlData.publicUrl);
-      }
-
-      // 2. Report in Datenbank aktualisieren
-      const { error: updateError } = await supabase
-        .from('reports')
-        .update({
-          repair_time: repairTime,
-          repair_material: repairMaterial,
-          repair_report: repairReport,
-          repair_image_urls: uploadedUrls,
-          resolved: true,
-          resolved_at: new Date().toISOString()
-        })
-        .eq('id', selectedReport.id);
-
-      if (updateError) throw updateError;
-
-      // 3. Historie schreiben
-      await supabase.from('maintenance_logs').insert([{
-        ferrata_id: id,
-        report_id: selectedReport.id,
-        type: 'Reparatur',
-        description: `REPARATUR: ${selectedReport.title || selectedReport.type}. Zeit: ${repairTime}. Material: ${repairMaterial}`,
-        date: new Date().toISOString().split('T')[0],
-        performed_by: 'Wartungsteam'
-      }]);
-
-      setActiveLightbox(null);
-      setSelectedReport(null);
-      setRepairImages([]);
-      setRepairTime('');
-      setRepairMaterial('');
-      setRepairReport('');
-      fetchData();
-      alert("Reparatur erfolgreich dokumentiert!");
-
-    } catch (err: any) {
-      alert("Fehler beim Speichern: " + err.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-  
   // Modus-State: Setup (Zahnrad) oder Reparatur (Schlüssel)
   const [editMode, setEditMode] = useState<'admin' | 'repair'>('admin');
 
@@ -127,6 +56,13 @@ const [uploading, setUploading] = useState(false);
   const topoUrl = ferrata?.topo_url || null;
 
   // --- 3. HELPER FUNCTIONS ---
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      setRepairImages(prev => [...prev, ...files]);
+    }
+  };
+
   const openGallery = (index: number | 'topo') => {
     if (index === 'topo') {
       setFullScreenImage(topoUrl);
@@ -167,24 +103,37 @@ const [uploading, setUploading] = useState(false);
   // --- 4. DATA FETCHING ---
   const fetchData = async () => {
     setLoading(true);
-    const { data: ferrataData } = await supabase.from('ferratas').select('name, status, topo_url').eq('id', id).single();
-    const { data: reportsData } = await supabase.from('reports').select('*').eq('ferrata_id', id).eq('resolved', false).order('created_at', { ascending: false });
-    const { data: historyData } = await supabase.from('maintenance_logs').select('*').eq('ferrata_id', id).order('date', { ascending: false });
+    try {
+      // 1. Ferrata Daten
+      const { data: ferrataData } = await supabase.from('ferratas').select('name, status, topo_url').eq('id', id).single();
+      
+      // 2. Offene User-Meldungen aus 'reports'
+      const { data: reportsData } = await supabase.from('reports').select('*').eq('ferrata_id', id).order('created_at', { ascending: false });
+      
+      // 3. Verifizierte Mängel aus 'defects'
+      const { data: defectsData } = await supabase.from('defects').select('*').eq('ferrata_id', id).eq('resolved', false);
+      
+      // 4. Historie
+      const { data: historyData } = await supabase.from('maintenance_logs').select('*').eq('ferrata_id', id).order('date', { ascending: false });
 
-    if (ferrataData) setFerrata(ferrataData);
-    if (reportsData) {
-      const verifiedReports = reportsData.filter(r => r.verified === true);
-      const sortedDefects = [...verifiedReports].sort((a, b) => {
-        const rankA = priorityRank[a.priority?.toLowerCase()] || 99;
-        const rankB = priorityRank[b.priority?.toLowerCase()] || 99;
-        if (rankA === rankB) return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        return rankA - rankB;
-      });
-      setDefects(sortedDefects);
-      setUserReports(reportsData.filter(r => r.verified === false));
+      if (ferrataData) setFerrata(ferrataData);
+      if (reportsData) setUserReports(reportsData);
+      
+      if (defectsData) {
+        const sortedDefects = [...defectsData].sort((a, b) => {
+          const rankA = priorityRank[a.priority?.toLowerCase()] || 99;
+          const rankB = priorityRank[b.priority?.toLowerCase()] || 99;
+          if (rankA === rankB) return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          return rankA - rankB;
+        });
+        setDefects(sortedDefects);
+      }
+      if (historyData) setHistory(historyData);
+    } catch (err) {
+      console.error("Fetch Error:", err);
+    } finally {
+      setLoading(false);
     }
-    if (historyData) setHistory(historyData);
-    setLoading(false);
   };
 
   useEffect(() => { if (id) fetchData(); }, [id]);
@@ -193,7 +142,7 @@ const [uploading, setUploading] = useState(false);
     if (selectedReport) {
       setAdminTitle(selectedReport.title || selectedReport.type || "");
       setAdminComment(selectedReport.internal_comment || "");
-      setTempPrio(selectedReport.priority || null);
+      setTempPrio(selectedReport.priority || 'niedrig');
     }
   }, [selectedReport]);
 
@@ -203,42 +152,135 @@ const [uploading, setUploading] = useState(false);
 
     if (action === 'discard') {
       if (!confirm("Eintrag wirklich entfernen?")) return;
-      const { error } = await supabase.from('reports').delete().eq('id', selectedReport.id);
+      // Ermitteln, in welcher Tabelle der Eintrag liegt
+      const table = (selectedReport as any).verified_by_name || selectedReport.priority ? 'defects' : 'reports';
+      const { error } = await supabase.from(table).delete().eq('id', selectedReport.id);
       if (!error) {
         await fetchData();
         setSelectedReport(null);
+        setActiveLightbox(null);
       }
     } else {
+      // VERIFIZIEREN / VERSCHIEBEN
       if (!adminTitle || !tempPrio) {
         alert("Bitte Titel und Priorität festlegen.");
         return;
       }
-      const { error } = await supabase.from('reports').update({ 
-        verified: true, 
-        priority: tempPrio,
+
+      // FALL A: Es ist bereits ein Defekt (Update-Modus)
+      if (defects.find(d => d.id === selectedReport.id)) {
+        const { error } = await supabase.from('defects').update({
+          title: adminTitle,
+          priority: tempPrio,
+          internal_comment: adminComment
+        }).eq('id', selectedReport.id);
+        
+        if (!error) {
+          await fetchData();
+          setSelectedReport(null);
+          setActiveLightbox(null);
+        }
+        return;
+      }
+
+      // FALL B: Umzug von 'reports' nach 'defects' (Neu-Erstellung)
+      // Wir nutzen userEmail aus dem useAuth() Hook für das Feld verified_by_name
+      const { data: userData } = await supabase.auth.getUser();
+      
+      const { error: insertError } = await supabase.from('defects').insert([{
+        ferrata_id: id,
+        report_id: selectedReport.id,
+        type: selectedReport.type,
+        description: selectedReport.description,
+        location: selectedReport.location,
+        coordinates: selectedReport.coordinates,
+        altitude: selectedReport.altitude,
+        reporter_name: selectedReport.reporter_name,
+        reporter_email: selectedReport.reporter_email,
+        reporter_phone: selectedReport.reporter_phone,
+        image_urls: selectedReport.image_urls,
+        topo_x: selectedReport.topo_x,
+        topo_y: selectedReport.topo_y,
+        
+        // ADMIN INPUTS
         title: adminTitle,
         internal_comment: adminComment,
-        verified_at: new Date().toISOString()
-      }).eq('id', selectedReport.id);
+        priority: tempPrio,
+        
+        // VERIFIZIERER INFOS (Neu hinzugefügt)
+        verified_by_name: userEmail, // Name/Email des aktuell eingeloggten Users
+        verified_by: userData.user?.id, // UUID des Users
+        verified_at: new Date().toISOString() // Zeitpunkt der Verifizierung
+      }]);
 
-      if (error) {
-        console.error("Speicherfehler:", error);
-        alert("Fehler beim Speichern: " + error.message);
+      if (insertError) {
+        alert("Fehler beim Verschieben in Defects: " + insertError.message);
       } else {
+        // Erfolgreich kopiert -> im öffentlichen 'reports' löschen
+        await supabase.from('reports').delete().eq('id', selectedReport.id);
         await fetchData();
         setSelectedReport(null);
+        setActiveLightbox(null);
       }
     }
   };
 
-  const resolveDefect = async (defect: any) => {
-    if (!confirm("Mangel wirklich entfernen?")) return;
-    setLoading(true);
+  const handleRepairComplete = async () => {
+    if (!selectedReport) return;
+    setUploading(true);
+    
     try {
-      await supabase.from('reports').delete().eq('id', defect.id);
-      fetchData();
+      const uploadedUrls: string[] = [];
+
+      // 1. Bilder hochladen
+      for (const file of repairImages) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `repair_${selectedReport.id}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage.from('reports').upload(filePath, file);
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage.from('reports').getPublicUrl(filePath);
+        uploadedUrls.push(urlData.publicUrl);
+      }
+
+      // 2. In 'defects' als erledigt markieren
+      const { error: updateError } = await supabase.from('defects').update({
+          repair_time: repairTime,
+          repair_material: repairMaterial,
+          repair_report: repairReport,
+          repair_image_urls: uploadedUrls,
+          resolved: true,
+          resolved_at: new Date().toISOString()
+        }).eq('id', selectedReport.id);
+
+      if (updateError) throw updateError;
+
+      // 3. Historie schreiben
+      await supabase.from('maintenance_logs').insert([{
+        ferrata_id: id,
+        report_id: selectedReport.id,
+        type: 'Reparatur',
+        description: `REPARATUR: ${selectedReport.title || selectedReport.type}. Zeit: ${repairTime}. Material: ${repairMaterial}`,
+        date: new Date().toISOString().split('T')[0],
+        performed_by: 'Wartungsteam'
+      }]);
+
+      setActiveLightbox(null);
       setSelectedReport(null);
-    } catch (err: any) { alert(err.message); } finally { setLoading(false); }
+      setRepairImages([]);
+      setRepairTime('');
+      setRepairMaterial('');
+      setRepairReport('');
+      fetchData();
+      alert("Reparatur erfolgreich dokumentiert!");
+
+    } catch (err: any) {
+      alert("Fehler beim Speichern: " + err.message);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const updateField = async (field: string, value: any) => {
@@ -246,39 +288,30 @@ const [uploading, setUploading] = useState(false);
     if (!error) setFerrata((prev: any) => ({ ...prev, [field]: value }));
   };
 
-  const showNextImage = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!selectedReport?.image_urls) return;
-    const nextIndex = (currentImgIndex + 1) % selectedReport.image_urls.length;
-    setCurrentImgIndex(nextIndex);
-    setFullScreenImage(selectedReport.image_urls[nextIndex]);
-  };
-
-  const showPrevImage = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!selectedReport?.image_urls) return;
-    const prevIndex = (currentImgIndex - 1 + selectedReport.image_urls.length) % selectedReport.image_urls.length;
-    setCurrentImgIndex(prevIndex);
-    setFullScreenImage(selectedReport.image_urls[prevIndex]);
-  };
-
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-white"><div className="w-6 h-6 border-2 border-slate-100 border-t-blue-600 rounded-full animate-spin"></div></div>;
+  if (loading || authLoading) return <div className="min-h-screen flex items-center justify-center bg-white"><div className="w-6 h-6 border-2 border-slate-100 border-t-blue-600 rounded-full animate-spin"></div></div>;
 
   return (
     <main className="min-h-screen bg-[#fafafa] text-slate-900 font-sans pb-32">
-      <div className="max-w-4xl mx-auto px-6 py-12 space-y-12">
+      <div className="max-w-4xl mx-auto px-6 py-12 space-y-6">
         
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-slate-100 pb-8">
-          <div>
-            <button onClick={() => router.push('/')} className="text-slate-400 hover:text-slate-900 text-xs font-medium mb-4 block">← Dashboard</button>
-            <h1 className="text-3xl font-semibold tracking-tight">{ferrata?.name}</h1>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-500 mt-1 italic">Wartungs-Zentrale</p>
+        {/* HEADER */}
+        <header className="flex flex-col space-y-6 border-b border-slate-100 pb-3">
+          <div className="flex justify-between items-start w-full">
+            <button onClick={() => router.push('/')} className="text-slate-400 hover:text-slate-900 text-xs font-medium flex items-center gap-2">← Dashboard</button>
+            <CloudStatusBadge />
           </div>
-          <Badge label="Klettersteig-Status" value={ferrata?.status} onEdit={(v: string) => updateField('status', v)} color={getStatusColor(ferrata?.status)} />
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-8 md:p-10 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative group">    
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight">{ferrata?.name}</h1>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 mt-1 italic">Wartungs-Zentrale</p>
+            </div>
+            <Badge label="Klettersteig-Status" value={ferrata?.status} onEdit={(v: string) => updateField('status', v)} color={getStatusColor(ferrata?.status)} />
+          </div>
         </header>
 
-        <div className="space-y-8">
-          {/* 1. MODUL: USER FEED */}
+        <div className="space-y-6">
+          {/* 1. MODUL: USER FEED (REPORTS) */}
           <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
             <div className="flex justify-between items-center border-b border-slate-50 pb-6">
               <div>
@@ -306,16 +339,14 @@ const [uploading, setUploading] = useState(false);
             </div>
           </section>
 
-          {/* 2. MODUL: MÄNGELLISTE */}
+          {/* 2. MODUL: MÄNGELLISTE (DEFECTS) */}
           <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
             <div className="flex justify-between items-center border-b border-slate-50 pb-6">
               <div>
                 <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Offizielle Mängelliste</h3>
                 <p className="text-[10px] text-red-500 mt-1 font-bold uppercase tracking-wider">{defects.length} Offene Mängel</p>
               </div>
-              
               <div className="flex items-center gap-3">
-                {/* MODUS UMSCHALTER */}
                 <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
                   <button onClick={() => setEditMode('admin')} className={`p-2 px-4 rounded-xl transition-all flex items-center gap-2 ${editMode === 'admin' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400'}`}>
                     <span className="text-sm">⚙️</span>
@@ -334,10 +365,30 @@ const [uploading, setUploading] = useState(false);
                 return (
                   <div key={d.id} onClick={() => { setSelectedReport(d); setActiveLightbox(editMode); }} className="bg-slate-50 border border-slate-100 rounded-3xl p-6 flex items-center gap-6 hover:border-blue-300 transition-all cursor-pointer group">
                     <div className={`w-1.5 h-12 rounded-full flex-shrink-0 ${styles.bar}`}></div>
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 items-center gap-4">
-                      <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Mangel</p><h4 className="text-sm font-black text-slate-900 line-clamp-1">{d.title || d.type}</h4></div>
-                      <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Erfasst am</p><p className="text-xs font-bold text-slate-600">{new Date(d.created_at).toLocaleDateString('de-DE')}</p></div>
-                      <div className="md:text-right"><span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border shadow-sm ${styles.badge}`}>{d.priority || 'unknown'}</span></div>
+                    
+                    {/* Erweitertes Grid von 3 auf 4 Spalten auf Desktop */}
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-4 items-center gap-4">
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Mangel</p>
+                        <h4 className="text-sm font-black text-slate-900 line-clamp-1">{d.title || d.type}</h4>
+                      </div>
+                      
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Erfasst am</p>
+                        <p className="text-xs font-bold text-slate-600">{new Date(d.created_at).toLocaleDateString('de-DE')}</p>
+                      </div>
+
+                      {/* NEUE SPALTE: VERIFIZIERER */}
+                      <div>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Verifiziert von</p>
+                        <p className="text-[10px] font-medium text-blue-600 truncate">{d.verified_by_name || 'System'}</p>
+                      </div>
+
+                      <div className="md:text-right">
+                        <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border shadow-sm ${styles.badge}`}>
+                          {d.priority || 'niedrig'}
+                        </span>
+                      </div>
                     </div>
                     <div className="text-slate-200 text-xl">→</div>
                   </div>
@@ -370,10 +421,10 @@ const [uploading, setUploading] = useState(false);
           <div className="bg-white rounded-[2.5rem] w-full max-w-3xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col">
             <div className="p-8 border-b border-slate-50 flex justify-between items-start bg-white z-10">
               <div>
-                <h2 className="text-xl font-bold tracking-tight">{selectedReport.verified ? "Eintrag bearbeiten" : "Meldung prüfen"}</h2>
+                <h2 className="text-xl font-bold tracking-tight">{selectedReport.priority ? "Eintrag bearbeiten" : "Meldung prüfen"}</h2>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[10px] text-slate-400 font-black">
                   {new Date(selectedReport.created_at).toLocaleDateString()} • {selectedReport.reporter_name}
-                  {(selectedReport.contact || selectedReport.reporter_email) && <p className="text-[9px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">✉️ {selectedReport.contact || selectedReport.reporter_email}</p>}
+                  {selectedReport.reporter_email && <p className="text-[9px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">✉️ {selectedReport.reporter_email}</p>}
                   {selectedReport.reporter_phone && <p className="text-[9px] font-bold text-slate-500 bg-slate-50 px-2 py-0.5 rounded-full">📞 {selectedReport.reporter_phone}</p>}
                 </div>
               </div>
@@ -381,25 +432,45 @@ const [uploading, setUploading] = useState(false);
             </div>
 
             <div className="overflow-y-auto p-8 space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Schadensfotos</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {selectedReport.image_urls?.map((url: string, idx: number) => (
-                      <div key={idx} onClick={() => openGallery(idx)} className="rounded-3xl overflow-hidden border border-slate-100 bg-slate-50 aspect-square cursor-zoom-in shadow-sm"><img src={url} className="w-full h-full object-cover" /></div>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Verortung im Topo</p>
-                  <div className="flex justify-center bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden">
-                    <div onClick={() => openGallery('topo')} className="relative inline-block cursor-zoom-in">
-                      <img src={topoUrl} className="max-h-[300px] w-auto object-contain" alt="Topo" />
-                      {selectedReport.topo_x && <div className="absolute w-2.5 h-2.5 bg-red-600 border border-white rounded-full -translate-x-1/2 -translate-y-1/2 shadow-xl" style={{ left: `${selectedReport.topo_x}%`, top: `${selectedReport.topo_y}%` }} />}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              
+{/* Container für Bilder und Topo */}
+<div className={`grid grid-cols-1 ${topoUrl ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-6`}>
+  
+  {/* Linke Seite: Schadensfotos (nimmt volle Breite ein, wenn kein Topo da ist) */}
+  <div className="space-y-3">
+    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Schadensfotos</p>
+    <div className={`grid ${topoUrl ? 'grid-cols-2' : 'grid-cols-3'} gap-2`}>
+      {selectedReport.image_urls?.map((url: string, idx: number) => (
+        <div key={idx} onClick={() => openGallery(idx)} className="rounded-3xl overflow-hidden border border-slate-100 bg-slate-50 aspect-square cursor-zoom-in shadow-sm">
+          <img src={url} className="w-full h-full object-cover" alt={`Schaden ${idx + 1}`} />
+        </div>
+      ))}
+    </div>
+  </div>
+
+  {/* Rechte Seite: Verortung im Topo - NUR RENDERN WENN topoUrl EXISTIERT */}
+  {topoUrl && (
+    <div className="space-y-3">
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Verortung im Topo</p>
+      <div className="flex justify-center bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden min-h-[200px] items-center">
+        <div onClick={() => openGallery('topo')} className="relative inline-block cursor-zoom-in">
+          <img 
+            src={topoUrl} 
+            className="max-h-[300px] w-auto object-contain" 
+            alt="Topo" 
+            onError={(e) => (e.currentTarget.style.display = 'none')} 
+          />
+          {selectedReport.topo_x && (
+            <div 
+              className="absolute w-2.5 h-2.5 bg-red-600 border border-white rounded-full -translate-x-1/2 -translate-y-1/2 shadow-xl" 
+              style={{ left: `${selectedReport.topo_x}%`, top: `${selectedReport.topo_y}%` }} 
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )}
+</div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-5 rounded-[2rem] border border-slate-100">
@@ -437,8 +508,8 @@ const [uploading, setUploading] = useState(false);
             </div>
 
             <div className="p-8 border-t border-slate-50 bg-slate-50 flex gap-4">
-              <button onClick={() => selectedReport.verified ? resolveDefect(selectedReport) : handleAction('discard')} className="flex-1 py-4 text-[10px] font-black text-red-400 hover:text-red-600 uppercase tracking-widest transition-all">{selectedReport.verified ? "ENTFERNEN" : "Löschen"}</button>
-              <button onClick={() => handleAction('verify')} disabled={!adminTitle.trim() || !tempPrio} className={`flex-[2] py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${(!adminTitle.trim() || !tempPrio) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-600 text-white shadow-blue-100'}`}>{selectedReport.verified ? "AKTUALISIEREN" : "ÜBERNEHMEN"}</button>
+              <button onClick={() => handleAction('discard')} className="flex-1 py-4 text-[10px] font-black text-red-400 hover:text-red-600 uppercase tracking-widest transition-all">LÖSCHEN</button>
+              <button onClick={() => handleAction('verify')} disabled={!adminTitle.trim() || !tempPrio} className={`flex-[2] py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${(!adminTitle.trim() || !tempPrio) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-blue-600 text-white shadow-blue-100'}`}>{selectedReport.priority ? "AKTUALISIEREN" : "ÜBERNEHMEN"}</button>
             </div>
           </div>
         </div>
@@ -448,8 +519,6 @@ const [uploading, setUploading] = useState(false);
       {activeLightbox === 'repair' && selectedReport && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col border-2 border-orange-500/20">
-            
-            {/* Header */}
             <div className="p-8 border-b border-orange-50 flex justify-between items-start bg-orange-50/30">
               <div>
                 <h2 className="text-xl font-bold text-orange-900 flex items-center gap-2"><span>🔧</span> Reparatur dokumentieren</h2>
@@ -459,7 +528,6 @@ const [uploading, setUploading] = useState(false);
             </div>
 
             <div className="overflow-y-auto p-8 space-y-8 bg-white">
-              {/* Eingabefelder */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
                   <div>
@@ -477,61 +545,36 @@ const [uploading, setUploading] = useState(false);
                 </div>
               </div>
 
-              {/* BILDER UPLOADER */}
               <div className="space-y-4">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Ergebnis-Fotos (Nachher)</p>
-                
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {/* Vorhandene Auswahl-Vorschau */}
                   {repairImages.map((file, idx) => (
                     <div key={idx} className="relative aspect-square rounded-3xl overflow-hidden border border-orange-100 group">
                       <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" alt="Vorschau" />
-                      <button 
-                        onClick={() => setRepairImages(prev => prev.filter((_, i) => i !== idx))}
-                        className="absolute top-2 right-2 bg-red-500 text-white w-6 h-6 rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        ×
-                      </button>
+                      <button onClick={() => setRepairImages(prev => prev.filter((_, i) => i !== idx))} className="absolute top-2 right-2 bg-red-500 text-white w-6 h-6 rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">×</button>
                     </div>
-            ))}
+                  ))}
+                  <label className="aspect-square border-2 border-dashed border-orange-200 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:bg-orange-50 transition-all text-orange-400 hover:text-orange-600">
+                    <input type="file" multiple accept="image/*" className="hidden" onChange={handleImageSelect} />
+                    <span className="text-3xl mb-1">📸</span>
+                    <span className="text-[9px] font-black uppercase">Foto hinzufügen</span>
+                  </label>
+                </div>
+              </div>
+            </div>
 
-            {/* Upload Button */}
-            <label className="aspect-square border-2 border-dashed border-orange-200 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:bg-orange-50 transition-all text-orange-400 hover:text-orange-600">
-              <input type="file" multiple accept="image/*" className="hidden" onChange={handleImageSelect} />
-              <span className="text-3xl mb-1">📸</span>
-              <span className="text-[9px] font-black uppercase">Foto hinzufügen</span>
-            </label>
+            <div className="p-8 border-t border-slate-50 bg-slate-50 flex gap-4">
+              <button onClick={() => setActiveLightbox(null)} className="flex-1 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Abbrechen</button>
+              <button onClick={handleRepairComplete} disabled={uploading || !repairReport} className={`flex-[2] py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${uploading ? 'bg-slate-300 animate-pulse' : 'bg-orange-600 text-white shadow-orange-100'}`}>{uploading ? 'Wird gespeichert...' : 'Reparatur abschließen'}</button>
+            </div>
           </div>
         </div>
-      </div>
-
-      {/* Footer */}
-      <div className="p-8 border-t border-slate-50 bg-slate-50 flex gap-4">
-        <button onClick={() => setActiveLightbox(null)} className="flex-1 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Abbrechen</button>
-        <button 
-          onClick={handleRepairComplete} 
-          disabled={uploading || !repairReport}
-          className={`flex-[2] py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${
-            uploading ? 'bg-slate-300 animate-pulse' : 'bg-orange-600 text-white shadow-orange-100'
-          }`}
-        >
-          {uploading ? 'Wird gespeichert...' : 'Reparatur abschließen'}
-        </button>
-      </div>
-    </div>
-  </div>
       )}
 
       {/* FULLSCREEN IMAGE OVERLAY */}
       {fullScreenImage && (
         <div className="fixed inset-0 z-[200] bg-slate-900/98 flex items-center justify-center p-4 animate-in fade-in" onClick={() => {setFullScreenImage(null); setIsGalleryTopo(false);}}>
           <button className="absolute top-6 right-6 text-white text-5xl font-light p-4 z-[210] hover:text-blue-400 transition-colors">×</button>
-          {!isGalleryTopo && selectedReport?.image_urls?.length > 1 && (
-            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-between px-4 md:px-10 pointer-events-none">
-               <button onClick={(e) => { e.stopPropagation(); const prev = (currentImgIndex - 1 + selectedReport.image_urls.length) % selectedReport.image_urls.length; setCurrentImgIndex(prev); setFullScreenImage(selectedReport.image_urls[prev]); }} className="pointer-events-auto w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-xl">←</button>
-               <button onClick={(e) => { e.stopPropagation(); const next = (currentImgIndex + 1) % selectedReport.image_urls.length; setCurrentImgIndex(next); setFullScreenImage(selectedReport.image_urls[next]); }} className="pointer-events-auto w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-xl">→</button>
-            </div>
-          )}
           <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
             <img src={fullScreenImage} className="max-w-[95vw] max-h-[85vh] object-contain shadow-2xl rounded-lg border border-white/10" alt="Vollbild" />
             {isGalleryTopo && selectedReport?.topo_x && <div className="absolute w-3 h-3 bg-red-600 border-2 border-white rounded-full -translate-x-1/2 -translate-y-1/2 shadow-2xl" style={{ left: `${selectedReport.topo_x}%`, top: `${selectedReport.topo_y}%` }} />}
@@ -557,7 +600,7 @@ function Badge({ label, value, color, onEdit }: any) {
       {isEdit && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsEdit(false)}></div>
-          <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+          <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-50 py-1 overflow-hidden">
             {statusOptions.map((opt) => (
               <button key={opt.value} className={`w-full py-4 px-4 text-[11px] font-bold uppercase border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors ${value === opt.value ? 'text-blue-600 bg-blue-50' : 'text-slate-600'}`} onClick={() => { onEdit(opt.value); setIsEdit(false); }}>{opt.label}</button>
             ))}

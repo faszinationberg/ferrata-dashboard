@@ -5,6 +5,9 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '../../../lib/supabase'; 
 
+import { CloudStatusBadge } from '../../components/CloudStatusBadge';
+import { useAuth } from '../../hooks/useAuth'; // Falls du die Rolle für Logik brauchst
+
 const getStatusColor = (status: string) => {
   switch (status?.toLowerCase()) {
     case 'open': return 'bg-emerald-50 text-emerald-600 border-emerald-100';
@@ -27,7 +30,7 @@ export default function FerrataDetails() {
   
   const [ferrata, setFerrata] = useState<any>(null);
   const [defects, setDefects] = useState<any[]>([]);
-  const [userReports, setUserReports] = useState<any[]>([]);
+ // const [userReports, setUserReports] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [expandedReport, setExpandedReport] = useState<string | null>(null);
   const [isGlobalEdit, setIsGlobalEdit] = useState(false);
@@ -36,6 +39,8 @@ export default function FerrataDetails() {
   const [isHeaderEdit, setIsHeaderEdit] = useState(false);
   const [isDocEdit, setIsDocEdit] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+
+  const { userRole } = useAuth(); // Nur wenn du userRole für "if (userRole === 'dev')" brauchst
 
   const [lightbox, setLightbox] = useState<{ open: boolean, images: string[], index: number }>({
   open: false,
@@ -199,7 +204,7 @@ const removeSpecialElement = (index: number) => {
     if (ferrataData) setFerrata(ferrataData);
     if (reportsData) {
       setDefects(reportsData.filter(r => r.verified === true));
-      setUserReports(reportsData.filter(r => r.verified === false));
+    //  setUserReports(reportsData.filter(r => r.verified === false));
     }
     if (historyData) setHistory(historyData);
     setLoading(false);
@@ -368,9 +373,20 @@ const removeImage = (index: number) => {
       <div className="max-w-6xl mx-auto px-6 py-12 space-y-8">
         
         {/* HEADER */}
-        <header className="space-y-6">
-          <button onClick={() => router.push('/')} className="text-slate-400 hover:text-slate-900 text-xs font-medium transition-all">← Dashboard</button>
-          
+{/* 1. HEADER ZEILE: Dashboard Link links, Badge rechts */}
+      <header className="flex items-center justify-between w-full">
+        <button 
+          onClick={() => router.push('/')} 
+          className="text-slate-400 hover:text-slate-900 text-xs font-medium transition-all flex items-center gap-2"
+        >
+          <span className="text-sm">←</span> Dashboard
+        </button>
+        
+        {/* Dein Badge-Container */}
+        <CloudStatusBadge /> {/* Einfach hinsetzen, fertig! */}
+      </header>
+
+      {/* 2. CONTENT ZEILE: Ab hier fängt die Info-Box an */}
           <div className="bg-white border border-slate-200 rounded-2xl p-8 md:p-10 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative group">
             
             {/* EDIT-STIFT FÜR HEADER */}
@@ -483,7 +499,7 @@ const removeImage = (index: number) => {
               />
             </div>
           </div>
-        </header>
+
 
         {/* VERWALTUNG & GEO DIREKT UNTER HEADER */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -685,52 +701,52 @@ const removeImage = (index: number) => {
 
                 </div>
 
-<div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm mt-8">
-  {/* Header & Button in einer Zeile, um oben Platz zu sparen */}
-  <div className="flex justify-between items-center mb-6 border-l-4 border-slate-400 pl-4 py-1">
-    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-      Koordinaten Ausgangspunkt
-    </h3>
-    
-    {/* Navigation direkt als kompakter Link/Button im Header-Bereich */}
-    {ferrata.latitude && ferrata.longitude && (
-      <a 
-        href={`https://www.google.com/maps/search/?api=1&query=${ferrata.latitude},${ferrata.longitude}`}
-        target="_blank"
-        rel="noreferrer"
-        className="flex items-center gap-2 text-emerald-600 hover:text-emerald-700 transition-colors"
-      >
-        <span className="text-[10px] font-black uppercase tracking-wider">Maps öffnen</span>
-        <span className="text-sm">📍</span>
-      </a>
-    )}
-  </div>
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm mt-8">
+                  {/* Header & Button in einer Zeile, um oben Platz zu sparen */}
+                  <div className="flex justify-between items-center mb-6 border-l-4 border-slate-400 pl-4 py-1">
+                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                      Koordinaten Ausgangspunkt
+                    </h3>
+                    
+                    {/* Navigation direkt als kompakter Link/Button im Header-Bereich */}
+                    {ferrata.latitude && ferrata.longitude && (
+                      <a 
+                        href={`https://www.google.com/maps/search/?api=1&query=${ferrata.latitude},${ferrata.longitude}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-2 text-emerald-600 hover:text-emerald-700 transition-colors"
+                      >
+                        <span className="text-[10px] font-black uppercase tracking-wider">Maps öffnen</span>
+                        <span className="text-sm">📍</span>
+                      </a>
+                    )}
+                  </div>
 
-  {/* Eingabefelder: Kompakter durch weniger gap und reduziertes Padding */}
-  <div className="grid grid-cols-2 gap-8 px-4">
-    <VerticalDataField 
-      label="Latitude" 
-      value={ferrata.latitude} 
-      isEditable={isGeoEdit} 
-      onSave={(v:string) => updateField('latitude', v)} 
-    />
-    <VerticalDataField 
-      label="Longitude" 
-      value={ferrata.longitude} 
-      isEditable={isGeoEdit} 
-      onSave={(v:string) => updateField('longitude', v)} 
-    />
-  </div>
+                  {/* Eingabefelder: Kompakter durch weniger gap und reduziertes Padding */}
+                  <div className="grid grid-cols-2 gap-8 px-4">
+                    <VerticalDataField 
+                      label="Latitude" 
+                      value={ferrata.latitude} 
+                      isEditable={isGeoEdit} 
+                      onSave={(v:string) => updateField('latitude', v)} 
+                    />
+                    <VerticalDataField 
+                      label="Longitude" 
+                      value={ferrata.longitude} 
+                      isEditable={isGeoEdit} 
+                      onSave={(v:string) => updateField('longitude', v)} 
+                    />
+                  </div>
 
-  {/* Falls keine Daten da sind, zeigen wir einen kleinen Hinweis dezent unten an */}
-  {(!ferrata.latitude || !ferrata.longitude) && (
-    <div className="mt-4 pt-4 border-t border-slate-50 text-center">
-      <p className="text-[9px] font-bold uppercase text-slate-300 tracking-widest italic">
-        Keine Standortdaten verfügbar
-      </p>
-    </div>
-  )}
-</div>
+                  {/* Falls keine Daten da sind, zeigen wir einen kleinen Hinweis dezent unten an */}
+                  {(!ferrata.latitude || !ferrata.longitude) && (
+                    <div className="mt-4 pt-4 border-t border-slate-50 text-center">
+                      <p className="text-[9px] font-bold uppercase text-slate-300 tracking-widest italic">
+                        Keine Standortdaten verfügbar
+                      </p>
+                    </div>
+                  )}
+                </div>
 
                 {isGeoEdit && (
                   <div className="mt-8 pt-4 border-t border-blue-50 text-center">
@@ -846,54 +862,53 @@ const removeImage = (index: number) => {
                         )}
                       </div>
 
-                      {/* Bilder-Sektion für das Element */}
-{/* Bilder-Sektion für das Spezialelement */}
-<div className="md:col-span-4 mt-6 pt-5 border-t border-slate-200/50">
-  <p className="text-[8px] font-bold uppercase text-slate-400 mb-3 tracking-widest">Fotos des Elements</p>
-  
-  <div className="flex flex-wrap gap-3 pt-1">
-    {el.images?.map((img: string, i: number) => (
-      <div key={i} className="relative group/elem-thumb flex-shrink-0">
-        <button 
-          type="button"
-          onClick={() => setLightbox({ open: true, images: el.images, index: i })}
-          className="h-16 w-24 rounded-xl overflow-hidden border border-slate-200 hover:border-blue-500 transition-all shadow-sm block bg-slate-50"
-        >
-          <img src={img} className="w-full h-full object-cover transition-transform duration-500 group-hover/elem-thumb:scale-110" alt="Detail" />
-        </button>
+                      {/* Bilder-Sektion für das Spezialelement */}
+                      <div className="md:col-span-4 mt-6 pt-5 border-t border-slate-200/50">
+                        <p className="text-[8px] font-bold uppercase text-slate-400 mb-3 tracking-widest">Fotos des Elements</p>
+                        
+                        <div className="flex flex-wrap gap-3 pt-1">
+                          {el.images?.map((img: string, i: number) => (
+                            <div key={i} className="relative group/elem-thumb flex-shrink-0">
+                              <button 
+                                type="button"
+                                onClick={() => setLightbox({ open: true, images: el.images, index: i })}
+                                className="h-16 w-24 rounded-xl overflow-hidden border border-slate-200 hover:border-blue-500 transition-all shadow-sm block bg-slate-50"
+                              >
+                                <img src={img} className="w-full h-full object-cover transition-transform duration-500 group-hover/elem-thumb:scale-110" alt="Detail" />
+                              </button>
 
-        {/* Lösch-Button: Jetzt mit korrekten Klammern */}
-        {isTechEdit && (
-          <button 
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              removeElementImage(index, i);
-            }}
-            className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 text-[10px] flex items-center justify-center border-2 border-white shadow-lg hover:bg-red-600 transition-all z-10 opacity-0 group-hover/elem-thumb:opacity-100"
-            title="Bild entfernen"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-    ))}
+                              {/* Lösch-Button: Jetzt mit korrekten Klammern */}
+                              {isTechEdit && (
+                                <button 
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeElementImage(index, i);
+                                  }}
+                                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 text-[10px] flex items-center justify-center border-2 border-white shadow-lg hover:bg-red-600 transition-all z-10 opacity-0 group-hover/elem-thumb:opacity-100"
+                                  title="Bild entfernen"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          ))}
 
-    {/* Upload-Button */}
-    {isTechEdit && (
-      <label className="h-16 w-24 rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 text-slate-300 hover:text-blue-500 transition-all gap-1">
-        <span className="text-xl leading-none">+</span>
-        <span className="text-[8px] font-bold uppercase tracking-tighter">Upload</span>
-        <input 
-          type="file" 
-          className="hidden" 
-          accept="image/*" 
-          onChange={(e) => uploadElementImage(index, e)} 
-        />
-      </label>
-    )}
-  </div>
-</div>
+                          {/* Upload-Button */}
+                          {isTechEdit && (
+                            <label className="h-16 w-24 rounded-xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 text-slate-300 hover:text-blue-500 transition-all gap-1">
+                              <span className="text-xl leading-none">+</span>
+                              <span className="text-[8px] font-bold uppercase tracking-tighter">Upload</span>
+                              <input 
+                                type="file" 
+                                className="hidden" 
+                                accept="image/*" 
+                                onChange={(e) => uploadElementImage(index, e)} 
+                              />
+                            </label>
+                          )}
+                        </div>
+                      </div>
 
                     </div>
                   </div>
@@ -950,18 +965,33 @@ const removeImage = (index: number) => {
 
               <div className="space-y-6 flex-1">
                 {/* HAUPTBILD */}
-                <div className="relative group overflow-hidden rounded-2xl border border-slate-100 shadow-inner bg-slate-50">
-                  <img 
-                    src={displayImages[activeImgIndex]?.url} 
-                    className="w-full aspect-video object-cover cursor-zoom-in transition-transform duration-700 group-hover:scale-105" 
-                    alt="Gallery Main"
-                    onClick={() => setLightbox({ 
-                      open: true, 
-                      images: displayImages.map((img:any) => img.url), 
-                      index: activeImgIndex 
-                    })}
-                  />
-                  <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_40px_rgba(0,0,0,0.02)]"></div>
+                <div className="relative group overflow-hidden rounded-2xl border border-slate-100 shadow-inner bg-slate-50 min-aspect-video flex items-center justify-center">
+                  {displayImages[activeImgIndex]?.url ? (
+                    <>
+                      <img 
+                        src={displayImages[activeImgIndex].url} 
+                        className="w-full aspect-video object-cover cursor-zoom-in transition-transform duration-700 group-hover:scale-105" 
+                        alt="Gallery Main"
+                        onClick={() => setLightbox({ 
+                          open: true, 
+                          images: displayImages.map((img: any) => img.url), 
+                          index: activeImgIndex 
+                        })}
+                      />
+                      {/* Subtiles Overlay für Tiefe */}
+                      <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_40px_rgba(0,0,0,0.02)]"></div>
+                    </>
+                  ) : (
+                    /* Platzhalter wenn kein Bild vorhanden oder URL leer ist */
+                    <div className="w-full aspect-video flex flex-col items-center justify-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+                        <span className="text-slate-300">/</span>
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-300">
+                        Keine Aufnahme verfügbar
+                      </span>
+                    </div>
+                  )}
                 </div>
                 
                 {/* THUMBNAILS: Fix für den Lösch-Button Überlapp-Fehler */}
@@ -974,7 +1004,14 @@ const removeImage = (index: number) => {
                           activeImgIndex === i ? 'border-blue-500 scale-95 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'
                         }`}
                       >
-                        <img src={img.url} className="w-full h-full object-cover" alt="thumb" />
+                        {/* WICHTIG: Nur rendern, wenn url vorhanden und nicht leer ist */}
+                        {img.url ? (
+                          <img src={img.url} className="w-full h-full object-cover" alt="thumb" />
+                        ) : (
+                          <div className="w-full h-full bg-slate-50 flex items-center justify-center">
+                            <span className="text-[10px] text-slate-300 font-bold">...</span>
+                          </div>
+                        )}
                       </button>
                       
                       {/* Lösch-Button: Höherer Z-Index und bessere Positionierung */}
@@ -1131,6 +1168,8 @@ function EditableField({ value, onSave, textClass }: any) {
   useEffect(() => {
     setVal(value ?? '');
   }, [value]);
+
+
 
   if (isEdit) {
     return (

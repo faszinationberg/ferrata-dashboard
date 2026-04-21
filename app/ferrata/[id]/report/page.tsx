@@ -147,18 +147,33 @@ export default function MobileUserReport() {
     }));
   };
 
-  const handleSubmit = async () => {
+const handleSubmit = async () => {
     if (!files || files.length === 0) return;
     setLoading(true);
+    
     try {
       const uploadedUrls = [];
+      // 1. Bilder-Upload (mit Dateiendung für die Galerie)
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const path = `${id}/user_${Date.now()}_${i}`;
-        await supabase.storage.from('reports').upload(path, file);
-        uploadedUrls.push(supabase.storage.from('reports').getPublicUrl(path).data.publicUrl);
+        const fileExt = file.name.split('.').pop();
+        const path = `${id}/user_${Date.now()}_${i}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('reports')
+          .upload(path, file);
+        
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('reports')
+          .getPublicUrl(path);
+          
+        uploadedUrls.push(urlData.publicUrl);
       }
-      await supabase.from('reports').insert([{
+
+      // 2. In die Datenbank schreiben (Mapping auf deine SQL-Spalten)
+      const { error: dbError } = await supabase.from('reports').insert([{
         ferrata_id: id,
         type: formData.type,
         description: formData.description,
@@ -166,18 +181,22 @@ export default function MobileUserReport() {
         coordinates: formData.coordinates,
         altitude: formData.altitude,
         reporter_name: formData.reporter_name,
-        contact: formData.contact_email,
-        reporter_phone: formData.contact_phone,
+        reporter_email: formData.contact_email, // Datenbank-Spalte: reporter_email
+        reporter_phone: formData.contact_phone, // Falls du diese Spalte noch per SQL addest (siehe unten)
         email_opt_in: formData.email_opt_in,
         image_urls: uploadedUrls,
         topo_x: formData.topo_x,
         topo_y: formData.topo_y,
         verified: false,
-        priority: 'yellow'
+        created_at: new Date().toISOString()
       }]);
+
+      if (dbError) throw dbError;
+
       setStep(4);
     } catch (err: any) {
-      alert(err.message);
+      console.error("Meldungsfehler Details:", err);
+      alert("Fehler: " + err.message);
     } finally {
       setLoading(false);
     }

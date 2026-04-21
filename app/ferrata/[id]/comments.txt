@@ -1,0 +1,64 @@
+
+Wie du stattdessen auf die Rolle zugreifst:
+Falls du die userRole in dieser Datei für Logik brauchst (zum Beispiel um Bearbeiten-Buttons nur für Developer anzuzeigen), nutzt du jetzt einfach den neuen Hook ganz oben in deiner Komponente:
+
+
+// ✅ SO NUTZT DU ES JETZT
+import { useAuth } from '@/hooks/useAuth';
+import { CloudStatusBadge } from '@/components/CloudStatusBadge';
+
+export default function FerrataDetails() {
+  // Nutze den Hook, um die Daten zu holen (ohne sie selbst verwalten zu müssen)
+  const { userRole, userEmail } = useAuth(); 
+
+  // ... restlicher Code ...
+
+  return (
+    <main>
+      <header className="flex justify-between items-center">
+        <button>← Dashboard</button>
+        <CloudStatusBadge /> {/* Die Komponente regelt ihre Anzeige selbst */}
+      </header>
+
+      {/* Beispiel für Logik-Nutzung: */}
+      {userRole === 'developer' && (
+        <button>Nur Admins sehen diesen Button</button>
+      )}
+    </main>
+  );
+}
+
+
+
+
+
+
+
+
+useEffect(() => {
+
+    async function checkUser() {
+
+      const { data: { session } } = await supabase.auth.getSession();
+
+     
+
+      if (!session) {
+
+        // Jetzt ist 'router' bekannt!
+
+        router.push('/login');
+
+        return;
+
+      }
+
+      loadData();
+
+    }
+
+   
+
+    checkUser();
+
+  }, [router]); // router als Dependency hinzufügen

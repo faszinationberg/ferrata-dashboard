@@ -3,20 +3,28 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '../../../../lib/supabase';
+import { useAuth } from '../../../hooks/useAuth'; 
+import { CloudStatusBadge } from '../../../components/CloudStatusBadge';
 
 export default function InternalDefectReport() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
+//  const { userEmail, loading: authLoading } = useAuth();
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [topoUrl, setTopoUrl] = useState<string | null>(null);
+  const [ferrataName, setFerrataName] = useState<string>('');
   const [files, setFiles] = useState<FileList | null>(null);
+
+  const { userEmail, userProfile, loading: authLoading } = useAuth(); // userProfile enthält Name & Telefon
   
   const [formData, setFormData] = useState({
+    title: '',
     type: '',
     description: '',
+    internal_comment: '',
     location: '',
     coordinates: '',
     altitude: '',
@@ -26,11 +34,19 @@ export default function InternalDefectReport() {
   });
 
   useEffect(() => {
-    const fetchTopo = async () => {
-      const { data } = await supabase.from('ferratas').select('topo_url').eq('id', id).single();
-      if (data?.topo_url) setTopoUrl(data.topo_url);
+    const fetchFerrataData = async () => {
+      const { data } = await supabase
+        .from('ferratas')
+        .select('name, topo_url')
+        .eq('id', id)
+        .single();
+      
+      if (data) {
+        setTopoUrl(data.topo_url);
+        setFerrataName(data.name);
+      }
     };
-    fetchTopo();
+    fetchFerrataData();
   }, [id]);
 
   const handleGPS = () => {
@@ -53,78 +69,124 @@ export default function InternalDefectReport() {
     }));
   };
 
-  const handleSubmit = async () => {
-    // Letzter Check der Pflichtfelder
-    if (!files || files.length === 0 || !formData.type || !formData.priority || !formData.description || !formData.location || !formData.altitude || (topoUrl && !formData.topo_x)) {
-      alert("Bitte füllen Sie alle Pflichtfelder aus und laden Sie mindestens ein Bild hoch.");
+ const handleSubmit = async () => {
+    // 1. Validierung (Titel, Typ, Prio, Beschreibung und Bilder sind Pflicht)
+    if (!files || files.length === 0 || !formData.title || !formData.type || !formData.priority || !formData.description) {
+      alert("Bitte füllen Sie alle Pflichtfelder aus (Titel, Typ, Prio, Beschreibung & Bild).");
       return;
     }
 
     setLoading(true);
     try {
-      const uploadedUrls = [];
+      // 2. Bilder Upload Prozess
+      const uploadedUrls: string[] = []; // Variable hier lokal definieren
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const path = `${id}/admin_${Date.now()}_${i}`;
-        await supabase.storage.from('reports').upload(path, file);
-        uploadedUrls.push(supabase.storage.from('reports').getPublicUrl(path).data.publicUrl);
+        const fileExt = file.name.split('.').pop();
+        const path = `${id}/admin_manual_${Date.now()}_${i}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage.from('reports').upload(path, file);
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage.from('reports').getPublicUrl(path);
+        uploadedUrls.push(urlData.publicUrl);
       }
 
-      await supabase.from('reports').insert([{
+      // 3. Dynamischer Name für den Melder aus dem erweiterten Hook zusammenbauen
+      // Nutzt full_name und phone aus der profiles-Tabelle
+      const reporterInfo = userProfile?.full_name 
+        ? `${userProfile.full_name} (${userEmail}${userProfile.phone ? `, Tel: ${userProfile.phone}` : ''})`
+        : `Wartungsteam: ${userEmail}`;
+
+      // 4. Eintrag direkt in 'defects' (da interner Admin-Prozess)
+      const { error: dbError } = await supabase.from('defects').insert([{
         ferrata_id: id,
+        title: formData.title,
         type: formData.type,
         description: formData.description,
+        internal_comment: formData.internal_comment,
         location: formData.location,
         coordinates: formData.coordinates,
         altitude: formData.altitude,
         image_urls: uploadedUrls,
         topo_x: formData.topo_x,
         topo_y: formData.topo_y,
-        verified: true,
         priority: formData.priority,
-        reporter_name: 'Wartungsteam (Intern)',
+        
+        // Melder-Daten (Originalersteller)
+        reporter_name: reporterInfo, 
+        
+        // Verifizierer-Daten (Wer hat es ins System eingepflegt)
+        verified_by_name: userEmail, 
+        verified_at: new Date().toISOString(),
+        
         resolved: false
       }]);
-      
+
+      if (dbError) throw dbError;
+
+      // Alles okay -> Zurück zur Übersicht
       router.push(`/ferrata/${id}/maintenance`);
     } catch (err: any) {
-      alert(err.message);
+      console.error("Speicherfehler:", err);
+      alert("Fehler beim Speichern: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
+  const getPrioColor = (p: string) => {
+    switch(p) {
+      case 'niedrig': return formData.priority === p ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white text-slate-400 border-slate-100';
+      case 'mittel': return formData.priority === p ? 'bg-yellow-400 border-yellow-500 text-yellow-900' : 'bg-white text-slate-400 border-slate-100';
+      case 'hoch': return formData.priority === p ? 'bg-orange-500 border-orange-600 text-white' : 'bg-white text-slate-400 border-slate-100';
+      case 'kritisch': return formData.priority === p ? 'bg-red-600 border-red-700 text-white animate-pulse' : 'bg-white text-slate-400 border-slate-100';
+      default: return 'bg-white border-slate-100 text-slate-400';
+    }
+  };
+
+  if (authLoading) return null;
+
   return (
-    <main className="min-h-screen bg-[#fafafa] text-slate-900 font-sans pb-12">
-      {/* Fortschrittsbalken */}
+    <main className="min-h-screen bg-[#fafafa] text-slate-900 font-sans pb-32">
+      {/* Progress Bar */}
       <div className="fixed top-0 left-0 w-full h-1 bg-slate-100 z-50">
         <div className="h-full bg-blue-600 transition-all duration-700 ease-out" style={{ width: `${(step / 2) * 100}%` }}></div>
       </div>
 
-      <div className="max-w-md mx-auto px-6 pt-12">
-        <header className="mb-8">
-          <h2 className="text-lg font-semibold tracking-tight">
-            {step === 1 ? "1. Lokalisierung (Intern)" : "2. Mangel-Details"}
-          </h2>
-          <p className="text-[10px] font-medium text-blue-500 uppercase tracking-wider mt-1">
-            * Alle Felder außer GPS sind Pflichtfelder
-          </p>
+      <div className="max-w-md mx-auto px-6 pt-12 space-y-8">
+        
+        {/* HEADER MIT BADGE */}
+        <header className="flex flex-col space-y-6">
+          <div className="flex justify-between items-center w-full">
+            <button 
+              onClick={() => router.push(`/ferrata/${id}/maintenance`)} 
+              className="text-slate-400 hover:text-slate-900 text-xs font-medium flex items-center gap-2"
+            >
+              ← Abbrechen
+            </button>
+            <CloudStatusBadge />
+          </div>
+          
+          <div>
+            <h2 className="text-xl font-bold tracking-tight">
+              {step === 1 ? "1. Lokalisierung" : "2. Mangel-Details"}
+            </h2>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-blue-500">
+              Manuelle Erfassung: {ferrataName}
+            </p>
+          </div>
         </header>
 
-        {/* STEP 1: ORTUNG */}
+        {/* STEP 1 */}
         {step === 1 && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
             {topoUrl && (
               <div className="bg-white border border-slate-100 rounded-3xl overflow-hidden shadow-sm">
-                <div className="p-3 text-center border-b border-slate-50">
-                  <p className="text-[10px] font-medium text-slate-400 uppercase tracking-tight">
-                    {formData.topo_x ? "✓ Punkt markiert" : "Tippe auf den Schadenspunkt"}
-                  </p>
-                </div>
                 <div className="relative cursor-crosshair bg-slate-50" onClick={handleTopoClick}>
-                  <img src={topoUrl} alt="Topo" className={`w-full h-auto transition-opacity duration-700 ${formData.topo_x ? 'opacity-100' : 'opacity-60'}`} />
+                  <img src={topoUrl} alt="Topo" className="w-full h-auto" />
                   {formData.topo_x && (
-                    <div className="absolute w-5 h-5 bg-blue-600 border-2 border-white rounded-full -translate-x-1/2 -translate-y-1/2 shadow-lg animate-in zoom-in"
+                    <div className="absolute w-5 h-5 bg-blue-600 border-2 border-white rounded-full -translate-x-1/2 -translate-y-1/2 shadow-lg"
                          style={{ left: `${formData.topo_x}%`, top: `${formData.topo_y}%` }} />
                   )}
                 </div>
@@ -132,85 +194,72 @@ export default function InternalDefectReport() {
             )}
 
             <div className="grid grid-cols-2 gap-3">
-              {/* GPS BUTTON: Zeigt Koordinaten direkt im Button an, wenn erfasst */}
-              <button 
-                type="button" 
-                onClick={handleGPS} 
-                className={`p-4 rounded-2xl text-[11px] font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
-                  formData.coordinates 
-                    ? 'bg-emerald-50 border-emerald-100 text-emerald-600' 
-                    : 'bg-white border-slate-100 text-slate-500 hover:border-blue-200'
-                }`}
-              >
-                {formData.coordinates ? (
-                  <>
-                    <span className="text-[10px] font-mono tracking-tighter leading-none">
-                      {formData.coordinates.split(',')[0]}
-                    </span>
-                    <span className="text-[10px] font-mono tracking-tighter leading-none">
-                      {formData.coordinates.split(',')[1]}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-sm">📍</span>
-                    <span>GPS ORTUNG</span>
-                  </>
-                )}
-              </button>
-
-              <div className="relative">
-                <input type="text" placeholder="Höhe" className="w-full h-full bg-white border border-slate-100 p-4 rounded-2xl text-[11px] outline-none text-center" value={formData.altitude} onChange={e => setFormData({...formData, altitude: e.target.value})} />
-                <span className="absolute top-1 left-1/2 -translate-x-1/2 text-[8px] font-bold text-slate-300 uppercase">Höhe (m) *</span>
-              </div>
+<button 
+    type="button" 
+    onClick={handleGPS} 
+    className={`p-4 rounded-2xl text-[11px] font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+      formData.coordinates 
+        ? 'bg-emerald-50 border-emerald-100 text-emerald-600' 
+        : 'bg-white border-slate-100 text-slate-500 hover:border-blue-200'
+    }`}
+  >
+    {formData.coordinates ? (
+      <>
+        <span className="text-[10px] font-mono tracking-tighter leading-none">
+          {formData.coordinates.split(',')[0]}
+        </span>
+        <span className="text-[10px] font-mono tracking-tighter leading-none">
+          {formData.coordinates.split(',')[1]}
+        </span>
+      </>
+    ) : (
+      <>
+        <span className="text-sm">📍</span>
+        <span>GPS ORTUNG</span>
+      </>
+    )}
+  </button>
+              <input type="text" placeholder="Höhe (m) *" className="bg-white border border-slate-100 p-4 rounded-2xl text-xs outline-none text-center" value={formData.altitude} onChange={e => setFormData({...formData, altitude: e.target.value})} />
             </div>
 
-            <textarea 
-              placeholder="Ortsbeschreibung (z.B. nach der Brücke)... *" 
-              className="w-full bg-white border border-slate-100 p-4 rounded-2xl text-sm outline-none min-h-[80px] focus:border-blue-200 transition-colors" 
-              value={formData.location} 
-              onChange={e => setFormData({...formData, location: e.target.value})} 
-            />
+            <textarea placeholder="Ort (z.B. Seilbrücke) *" className="w-full bg-white border border-slate-100 p-4 rounded-2xl text-sm outline-none min-h-[80px]" value={formData.location} onChange={e => setFormData({...formData, location: e.target.value})} />
 
-            <button 
-              onClick={() => setStep(2)} 
-              disabled={(!!topoUrl && !formData.topo_x) || !formData.location || !formData.altitude} 
-              className={`w-full py-4 rounded-2xl font-medium text-sm tracking-wide transition-all ${((!!topoUrl && !formData.topo_x) || !formData.location || !formData.altitude) ? 'bg-slate-100 text-slate-300' : 'bg-slate-900 text-white shadow-xl shadow-slate-200'}`}
-            >
+            <button onClick={() => setStep(2)} disabled={!formData.location} className={`w-full py-4 rounded-2xl font-bold text-sm ${!formData.location ? 'bg-slate-100 text-slate-300' : 'bg-slate-900 text-white shadow-xl'}`}>
               Details erfassen →
             </button>
           </div>
         )}
 
-        {/* STEP 2: DETAILS & PRIO */}
+        {/* STEP 2 */}
         {step === 2 && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* TYPE SELECTION (Icons wie User-Form) */}
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+            
+            <div>
+              <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest ml-4">Offizieller Titel *</label>
+              <input 
+                type="text" 
+                value={formData.title} 
+                onChange={e => setFormData({...formData, title: e.target.value})} 
+                className="w-full bg-white border border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-500 outline-none transition-all" 
+                placeholder="Bezeichnung..." 
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
-              {[
-                { id: 'Anchor', icon: '🔩', label: 'Anker' },
-                { id: 'Cable', icon: '🪢', label: 'Seil' },
-                { id: 'Rock', icon: '🪨', label: 'Fels' },
-                { id: 'Other', icon: '❓', label: 'Andere' }
-              ].map(item => (
-                <button key={item.id} onClick={() => setFormData({...formData, type: item.id})}
-                  className={`p-5 rounded-2xl border transition-all flex flex-col items-center gap-2 ${formData.type === item.id ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-100 text-slate-400'}`}
-                >
-                  <span className="text-xl">{item.icon}</span>
-                  <span className="text-[10px] font-semibold uppercase">{item.label}</span>
+              {[{id:'Anchor', i:'🔩', l:'Anker'}, {id:'Cable', i:'🪢', l:'Seil'}, {id:'Rock', i:'🪨', l:'Fels'}, {id:'Other', i:'❓', l:'Andere'}].map(item => (
+                <button key={item.id} onClick={() => setFormData({...formData, type: item.id})} className={`p-5 rounded-2xl border transition-all flex flex-col items-center gap-2 ${formData.type === item.id ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-white border-slate-100 text-slate-400'}`}>
+                  <span className="text-xl">{item.i}</span>
+                  <span className="text-[10px] font-bold uppercase">{item.l}</span>
                 </button>
               ))}
             </div>
 
-            {/* PRIORITÄT (Integrierte Admin-Funktion) */}
             <div className="bg-white border border-slate-100 p-5 rounded-3xl space-y-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Interne Priorisierung *</p>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Priorisierung *</p>
               <div className="grid grid-cols-4 gap-2">
                 {['niedrig', 'mittel', 'hoch', 'kritisch'].map((prio) => (
-                  <button 
-                    key={prio} 
-                    onClick={() => setFormData({...formData, priority: prio})}
-                    className={`py-3 rounded-xl text-[9px] font-bold uppercase transition-all border ${formData.priority === prio ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white border-slate-100 text-slate-400'}`}
+                  <button key={prio} onClick={() => setFormData({...formData, priority: prio})}
+                    className={`py-3 rounded-xl text-[9px] font-black uppercase transition-all border ${getPrioColor(prio)}`}
                   >
                     {prio}
                   </button>
@@ -219,11 +268,21 @@ export default function InternalDefectReport() {
             </div>
 
             <textarea 
-              placeholder="Detaillierte Beschreibung des Mangels... *" 
-              className="w-full bg-white border border-slate-100 p-4 rounded-2xl text-sm outline-none min-h-[120px] focus:border-blue-200 transition-colors" 
+              placeholder="Schadensbeschreibung... *" 
+              className="w-full bg-white border border-slate-100 p-4 rounded-2xl text-sm outline-none min-h-[100px] focus:border-blue-200" 
               onChange={e => setFormData({...formData, description: e.target.value})} 
-              value={formData.description} 
+              value={formData.description}
             />
+
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Interne Anweisung</label>
+              <textarea 
+                value={formData.internal_comment} 
+                onChange={e => setFormData({...formData, internal_comment: e.target.value})} 
+                className="w-full bg-white border border-slate-100 rounded-2xl p-4 text-sm min-h-[80px] focus:border-blue-500 outline-none" 
+                placeholder="Was ist zu tun?" 
+              />
+            </div>
 
             <div className={`p-8 rounded-2xl border-2 border-dashed text-center transition-all ${files?.length ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-slate-100'}`}>
               <input type="file" multiple accept="image/*" onChange={e => setFiles(e.target.files)} className="hidden" id="file-upload" />
@@ -231,15 +290,14 @@ export default function InternalDefectReport() {
                 <p className={`text-sm font-medium ${files?.length ? 'text-emerald-600' : 'text-blue-600'}`}>
                   {files?.length ? `✓ ${files.length} Bilder hinzugefügt` : "Fotos aufnehmen *"}
                 </p>
-                <p className="text-[10px] text-slate-400 mt-1 uppercase">Min. 1 Bild erforderlich</p>
               </label>
             </div>
 
             <div className="space-y-3 pt-4">
               <button 
                 onClick={handleSubmit} 
-                disabled={loading || !formData.type || !formData.priority || !formData.description || !files?.length} 
-                className={`w-full py-4 rounded-2xl font-medium text-sm transition-all ${ (loading || !formData.type || !formData.priority || !formData.description || !files?.length) ? 'bg-slate-100 text-slate-300' : 'bg-slate-900 text-white shadow-xl shadow-slate-200 active:scale-[0.98]'}`}
+                disabled={loading || !formData.title || !formData.type || !formData.priority || !formData.description || !files?.length} 
+                className={`w-full py-4 rounded-2xl font-medium text-sm transition-all ${ (loading || !formData.title || !formData.type || !formData.priority || !formData.description || !files?.length) ? 'bg-slate-100 text-slate-300' : 'bg-slate-900 text-white shadow-xl shadow-slate-200 active:scale-[0.98]'}`}
               >
                 {loading ? "Wird gespeichert..." : "Mangel offiziell speichern"}
               </button>

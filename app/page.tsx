@@ -2,7 +2,11 @@
 export const dynamic = 'force-dynamic';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation'; 
 import { supabase } from '../lib/supabase';
+
+import { CloudStatusBadge } from '@/app/components/CloudStatusBadge';
+import { useAuth } from '@/app/hooks/useAuth';
 
 interface Ferrata {
   id: string;
@@ -20,6 +24,8 @@ interface Report {
 }
 
 export default function Home() {
+  const router = useRouter(); 
+
   const [ferratas, setFerratas] = useState<Ferrata[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +34,11 @@ export default function Home() {
   // States für neuen Klettersteig
   const [showAddModal, setShowAddModal] = useState(false);
   const [newFerrata, setNewFerrata] = useState({ name: '', region: '', difficulty: 'C' });
+
+//  const [userEmail, setUserEmail] = useState<string | null>(null);
+ // const [userRole, setUserRole] = useState<string | null>(null);
+
+  const { userRole } = useAuth();
 
   async function loadData() {
     setLoading(true);
@@ -40,8 +51,23 @@ export default function Home() {
   }
 
   useEffect(() => {
-    loadData();
-  }, []);
+  async function checkUserAndLoadData() {
+    // 1. Session prüfen
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      router.push('/login');
+      return;
+    }
+
+    // 2. WICHTIG: Wenn Session ok, Daten laden!
+    // Erst loadData() setzt setLoading(false) am Ende
+    await loadData();
+  }
+  
+  checkUserAndLoadData();
+}, [router]); // router bleibt hier die einzige Dependency
+
 
   const handleCreateFerrata = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,10 +136,8 @@ export default function Home() {
             <p className="text-slate-400 text-sm mt-1 tracking-wide font-light">Monitoring & Documentation — G. Ausserhofer</p>
           </div>
           
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-100 rounded-full shadow-sm">
-            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${ferratas.length > 0 ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
-            <span className="text-[10px] font-medium text-slate-500 uppercase tracking-tighter">Cloud Live</span>
-          </div>
+          <CloudStatusBadge />
+
         </header>
 
         {/* GRID */}
