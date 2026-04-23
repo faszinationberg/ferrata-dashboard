@@ -1,30 +1,80 @@
+"use client";
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '../../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
 export function CloudStatusBadge() {
-  const { userEmail, userRole, loading } = useAuth();
+  const router = useRouter();
+  const { userEmail, userRole, userProfile, loading } = useAuth();
+  const [isOpen, setIsOpen] = useState(false);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+  };
 
   if (loading) return <div className="h-10 w-32 bg-slate-50 animate-pulse rounded-full" />;
 
   return (
-            <div className="flex items-center gap-3 px-4 py-2 bg-white border border-slate-100 rounded-full shadow-sm">
-                      <div className="flex flex-col leading-none">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                {userRole ? userRole : 'Rolle laden...'}
-              </span>
-              <span className="text-[10px] font-medium text-slate-600">
-                {userEmail ? userEmail : 'Nicht angemeldet'}
-              </span>
+    <div className="relative">
+      {/* Das Badge als interaktiver Button */}
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-3 px-4 py-2 bg-white border border-slate-100 rounded-full shadow-sm hover:border-blue-200 transition-all active:scale-[0.98] group"
+      >
+        <div className="flex flex-col leading-none text-left">
+          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+            {userRole ? userRole : 'Rolle laden...'}
+          </span>
+          <span className="text-[10px] font-bold text-slate-700">
+            {/* ANZEIGE: Name des Nutzers, Fallback auf gekürzte Email */}
+            {userProfile?.full_name ? userProfile.full_name : (userEmail ? userEmail.split('@')[0] : 'Gast')}
+          </span>
+        </div>
+
+        {/* Trennstrich */}
+        <div className="h-4 w-[1px] bg-slate-100 mx-1"></div>
+        
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+            Cloud Live
+          </span>
+          <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${userRole === 'developer' ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+          <span className={`text-[8px] text-slate-300 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
+            ▼
+          </span>
+        </div>
+      </button>
+
+      {/* Dropdown Menü */}
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-[100]" onClick={() => setIsOpen(false)} />
+          
+          <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-2xl shadow-2xl z-[110] py-2 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
+            <div className="px-4 py-2 border-b border-slate-50 mb-1">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Angemeldet als</p>
+              <p className="text-[10px] font-medium text-slate-500 truncate">{userEmail}</p>
             </div>
 
-            {/* Trennstrich */}
-            <div className="h-4 w-[1px] bg-slate-100 mx-1"></div>
-            
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-              Cloud Live
-            </span>
-            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${userRole === 'developer' ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+            <button 
+              onClick={() => { router.push('/profile'); setIsOpen(false); }}
+              className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-colors flex items-center gap-2"
+            >
+              <span>👤</span> Profil bearbeiten
+            </button>
+
+            <button 
+              onClick={handleLogout}
+              className="w-full text-left px-4 py-2.5 text-xs font-bold text-red-500 hover:bg-red-50 transition-colors flex items-center gap-2"
+            >
+              <span>🚪</span> Abmelden
+            </button>
           </div>
-        </div>
+        </>
+      )}
+    </div>
   );
 }

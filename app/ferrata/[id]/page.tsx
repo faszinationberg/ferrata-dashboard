@@ -6,18 +6,8 @@ import Link from 'next/link';
 import { supabase } from '../../../lib/supabase'; 
 
 import { CloudStatusBadge } from '../../components/CloudStatusBadge';
+import { FerrataStatusBadge } from '../../components/FerrataStatusBadge';
 import { useAuth } from '../../hooks/useAuth'; // Falls du die Rolle für Logik brauchst
-
-const getStatusColor = (status: string) => {
-  switch (status?.toLowerCase()) {
-    case 'open': return 'bg-emerald-50 text-emerald-600 border-emerald-100';
-    case 'maintenance': return 'bg-orange-50 text-orange-600 border-orange-100';
-    case 'winter': return 'bg-blue-50 text-blue-600 border-blue-100';
-    case 'closed': return 'bg-red-50 text-red-600 border-red-100';
-    case 'unknown': return 'bg-white text-slate-400 border-slate-200'; // Weiß/Grau für Unbekannt
-    default: return 'bg-slate-50 text-slate-400 border-slate-100';
-  }
-};
 
 export default function FerrataDetails() {
   const router = useRouter();
@@ -490,13 +480,11 @@ const removeImage = (index: number) => {
                 onEdit={(v:string) => updateField('difficulty', v)} 
                 color="bg-slate-50 border border-slate-100 text-slate-800" 
               />
-              <Badge 
-                label="Status" 
-                value={ferrata.status} 
-                isEditable={isHeaderEdit} // Kopplung an Header-Stift
-                onEdit={(v:string) => updateField('status', v)} 
-                color={getStatusColor(ferrata.status)} 
-              />
+              <FerrataStatusBadge 
+                            ferrataId={id} 
+                            initialStatus={ferrata?.status} 
+                            onUpdate={fetchData} // Damit die Wartungshistorie sofort den neuen Log zeigt
+                          />
             </div>
           </div>
 
@@ -1139,7 +1127,69 @@ const removeImage = (index: number) => {
             </div>
           </div>
         )}
-      </div>
+      {/* QR-CODE & REPORT LINK SEKTION */}
+        <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 md:p-12 shadow-sm overflow-hidden relative group">
+          {/* Subtiler Hintergrund-Akzent */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50/30 rounded-full blur-3xl -mr-32 -mt-32 transition-colors group-hover:bg-blue-100/40"></div>
+
+          <div className="flex flex-col md:flex-row items-center justify-between gap-12 relative z-10">
+            
+            {/* Linke Seite: Info & Link */}
+            <div className="flex-1 space-y-6 text-center md:text-left">
+              <div>
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 mb-2">Service-Schnittstelle</h3>
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Meldungen für Wanderer</h2>
+                <p className="text-slate-500 text-sm mt-4 leading-relaxed max-w-md">
+                  Über diesen Link gelangen Nutzer direkt zum Meldeformular. Platzieren Sie den QR-Code am Einstieg des Klettersteigs, um aktuelle Zustandsberichte zu erhalten.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-4 items-center">
+                <Link 
+                  href={`/ferrata/${id}/report`}
+                  className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-bold text-xs hover:bg-black transition-all shadow-xl shadow-slate-200 flex items-center gap-3 active:scale-95"
+                >
+                  <span>MELDESEITE ÖFFNEN</span>
+                  <span className="text-lg">↗</span>
+                </Link>
+                
+                <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest italic">
+                  ID: {id.substring(0,8)}...
+                </p>
+              </div>
+            </div>
+
+            {/* Rechte Seite: QR Code Box */}
+            <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-100 flex flex-col items-center gap-6 shadow-inner">
+              <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                {/* Dynamischer QR Code via API (nutzt die aktuelle URL der Report-Seite) */}
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
+                    typeof window !== 'undefined' ? `${window.location.origin}/ferrata/${id}/report` : ''
+                  )}`}
+                  alt="QR Code zur Meldeseite"
+                  className="w-40 h-40 object-contain"
+                />
+              </div>
+              
+              <div className="text-center space-y-2">
+                <a 
+                  href={`https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(
+                    typeof window !== 'undefined' ? `${window.location.origin}/ferrata/${id}/report` : ''
+                  )}`}
+                  download={`QR_Meldung_${ferrata.name}.png`}
+                  target="_blank"
+                  className="text-[10px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest border-b-2 border-blue-100 pb-1 transition-all"
+                >
+                  QR-Code herunterladen
+                </a>
+                <p className="text-[9px] text-slate-400 font-medium">Format: PNG (1000x1000px)</p>
+              </div>
+            </div>
+
+          </div>
+        </section>
+        </div>
 
       {lightbox.open && (
         <ImageLightbox 
@@ -1217,25 +1267,11 @@ function EditableDataField({ label, value, onSave }: any) {
 function Badge({ label, value, color, onEdit, isEditable }: any) {
   const [isEdit, setIsEdit] = useState(false);
   
-  const statusOptions = [
-    { label: 'Geöffnet', value: 'open' },
-    { label: 'Gesperrt', value: 'closed' },
-    { label: 'Gesperrt - Wartung', value: 'maintenance' },
-    { label: 'Winterpause', value: 'winter' },
-    { label: 'Unbekannt', value: 'unknown' }
-  ];
-
   const diffOptions = ["A", "A/B", "B", "B/C", "C", "C/D", "D", "D/E", "E", "E/F", "F"];
 
   const getDisplayValue = (val: string) => {
-    if (label === "Status") {
-      const option = statusOptions.find(o => o.value === (val?.toLowerCase() || 'unknown'));
-      return option ? option.label : val;
-    }
     return val;
   };
-
-  const isDiff = label.toLowerCase().includes("diff") || label.toLowerCase().includes("grad");
 
   return (
     <div className="relative">
@@ -1253,24 +1289,27 @@ function Badge({ label, value, color, onEdit, isEditable }: any) {
         </div>
       </div>
 
-      {isEdit && isEditable && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsEdit(false)}></div>
-          <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-50 overflow-hidden py-1 max-h-64 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
-            {isDiff ? (
-              diffOptions.map((opt) => (
-                <button key={opt} className={`w-full py-3 px-4 text-[11px] font-bold uppercase hover:bg-blue-50 text-center block ${value === opt ? 'text-blue-600 bg-blue-50' : 'text-slate-600'}`}
-                  onClick={() => { onEdit(opt); setIsEdit(false); }}>{opt}</button>
-              ))
-            ) : (
-              statusOptions.map((opt) => (
-                <button key={opt.value} className={`w-full py-3.5 px-4 text-[11px] font-bold uppercase hover:bg-blue-50 text-center block ${value === opt.value ? 'text-blue-600 bg-blue-50' : 'text-slate-600'}`}
-                  onClick={() => { onEdit(opt.value); setIsEdit(false); }}>{opt.label}</button>
-              ))
-            )}
-          </div>
-        </>
-      )}
+{isEdit && isEditable && (
+  <>
+    <div className="fixed inset-0 z-40" onClick={() => setIsEdit(false)}></div>
+    <div className="absolute left-0 right-0 top-full mt-2 bg-white border border-slate-100 rounded-2xl shadow-2xl z-50 overflow-hidden py-1 max-h-64 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+      {/* Da statusOptions entfernt wurde, rendern wir nur noch diffOptions */}
+      {diffOptions.map((opt) => (
+        <button 
+          key={opt} 
+          className={`w-full py-3 px-4 text-[11px] font-bold uppercase hover:bg-blue-50 text-center block ${value === opt ? 'text-blue-600 bg-blue-50' : 'text-slate-600'}`}
+          onClick={() => { 
+            onEdit(opt); 
+            setIsEdit(false); 
+          }}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  </>
+)}
+
     </div>
   );
 }
