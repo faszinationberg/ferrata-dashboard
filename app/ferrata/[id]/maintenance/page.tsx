@@ -208,9 +208,47 @@ setHistory(sortedHistory);
   const handleAction = async (action: 'verify' | 'discard') => {
     if (!selectedReport) return;
 
+    // --- INTERNE FUNKTION ZUM ANHÄNGEN (Logik innerhalb von handleAction) ---
+    const attachToExistingDefect = async (defectId: string) => {
+      if (!selectedReport) return;
+
+      const { error: updateReportError } = await supabase
+        .from('reports')
+        .update({ 
+          parent_defect_id: defectId, 
+          verified: true 
+        })
+        .eq('id', selectedReport.id);
+
+      if (!updateReportError) {
+        // Fotos zum Master-Mangel hinzufügen
+        const targetDefect = defects.find(d => d.id === defectId);
+        const updatedImages = [...(targetDefect?.image_urls || []), ...(selectedReport.image_urls || [])];
+        
+        await supabase
+          .from('defects')
+          .update({ image_urls: updatedImages })
+          .eq('id', defectId);
+
+        // --- NEU: LOG FÜR DAS ANHÄNGEN ---
+        await supabase.from('maintenance_logs').insert([{
+          ferrata_id: id,
+          user_id: userRole === 'developer' ? 'dev-id' : 'admin-id', // Ersetze dies ggf. durch userData.user?.id
+          user_name: userEmail,
+          date: new Date().toISOString(),
+          log_type: 'verification',
+          description: `MELDUNG ZUGEORDNET: Ein Report von ${selectedReport.reporter_name || 'Gast'} wurde dem bestehenden Mangel [${targetDefect?.title}] zugewiesen.`
+        }]);
+
+        await fetchData();
+        setActiveLightbox(null);
+        setSelectedReport(null);
+      }
+    };
+
+    // --- HAUPT-LOGIK DER AKTION ---
     if (action === 'discard') {
       if (!confirm("Eintrag wirklich entfernen?")) return;
-      // Ermitteln, in welcher Tabelle der Eintrag liegt
       const table = (selectedReport as any).verified_by_name || selectedReport.priority ? 'defects' : 'reports';
       const { error } = await supabase.from(table).delete().eq('id', selectedReport.id);
       if (!error) {
@@ -242,7 +280,6 @@ setHistory(sortedHistory);
       }
 
       // FALL B: Umzug von 'reports' nach 'defects' (Neu-Erstellung)
-      // Wir nutzen userEmail aus dem useAuth() Hook für das Feld verified_by_name
       const { data: userData } = await supabase.auth.getUser();
       
       const { error: insertError } = await supabase.from('defects').insert([{
@@ -259,55 +296,32 @@ setHistory(sortedHistory);
         image_urls: selectedReport.image_urls,
         topo_x: selectedReport.topo_x,
         topo_y: selectedReport.topo_y,
-        
-        // ADMIN INPUTS
         title: adminTitle,
         internal_comment: adminComment,
         priority: tempPrio,
-        
-        // VERIFIZIERER INFOS (Neu hinzugefügt)
-        verified_by_name: userEmail, // Name/Email des aktuell eingeloggten Users
-        verified_by: userData.user?.id, // UUID des Users
-        verified_at: new Date().toISOString() // Zeitpunkt der Verifizierung
+        verified_by_name: userEmail,
+        verified_by: userData.user?.id,
+        verified_at: new Date().toISOString()
       }]);
 
       if (insertError) {
-        alert("Fehler beim Verschieben in Defects: " + insertError.message);
+        alert("Fehler beim Verschieben: " + insertError.message);
       } else {
-        // Erfolgreich kopiert -> im öffentlichen 'reports' löschen
+        // LOG FÜR NEU-ERSTELLUNG
+        await supabase.from('maintenance_logs').insert([{
+          ferrata_id: id,
+          user_id: userData.user?.id,
+          user_name: userEmail,
+          date: new Date().toISOString(),
+          log_type: 'verification',
+          description: `MANGEL VERIFIZIERT: [${adminTitle}] (${tempPrio.toUpperCase()}). Gemeldet von ${selectedReport.reporter_name || 'Gast'}.`
+        }]);
+
         await supabase.from('reports').delete().eq('id', selectedReport.id);
         await fetchData();
         setSelectedReport(null);
         setActiveLightbox(null);
       }
-
-      const attachToExistingDefect = async (defectId: string) => {
-        if (!selectedReport) return;
-
-        const { error } = await supabase
-          .from('reports')
-          .update({ 
-            parent_defect_id: defectId, 
-            verified: true // Wir markieren ihn als "bearbeitet"
-          })
-          .eq('id', selectedReport.id);
-
-        if (!error) {
-          // Optional: Kopiere das Foto des Users in das Bilder-Array des Master-Mangels
-          // Damit der Techniker alle Perspektiven sieht.
-          const targetDefect = defects.find(d => d.id === defectId);
-          const updatedImages = [...(targetDefect.image_urls || []), ...(selectedReport.image_urls || [])];
-          
-          await supabase
-            .from('defects')
-            .update({ image_urls: updatedImages })
-            .eq('id', defectId);
-
-          fetchData();
-          setActiveLightbox(null);
-        }
-      };
-
     }
   };
 
@@ -383,7 +397,7 @@ setHistory(sortedHistory);
         {/* HEADER */}
         <header className="flex flex-col space-y-6 border-b border-slate-100 pb-3">
           <div className="flex justify-between items-start w-full">
-            <button onClick={() => router.push('/')} className="text-slate-400 hover:text-slate-900 text-xs font-medium flex items-center gap-2">← Dashboard</button>
+            <button onClick={() => router.push('/dashboard')} className="text-slate-400 hover:text-slate-900 text-xs font-medium flex items-center gap-2">← Dashboard</button>
             <CloudStatusBadge />
           </div>
 

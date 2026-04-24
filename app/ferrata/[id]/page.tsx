@@ -366,7 +366,7 @@ const removeImage = (index: number) => {
 {/* 1. HEADER ZEILE: Dashboard Link links, Badge rechts */}
       <header className="flex items-center justify-between w-full">
         <button 
-          onClick={() => router.push('/')} 
+          onClick={() => router.push('/dashboard')} 
           className="text-slate-400 hover:text-slate-900 text-xs font-medium transition-all flex items-center gap-2"
         >
           <span className="text-sm">←</span> Dashboard

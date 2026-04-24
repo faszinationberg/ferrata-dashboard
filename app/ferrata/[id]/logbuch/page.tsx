@@ -47,7 +47,7 @@ export default function MaintenanceLog() {
         
         {/* Breadcrumbs & Navigation */}
         <nav className="mb-8 flex items-center gap-2 text-sm font-bold text-slate-400">
-          <button onClick={() => router.push('/')} className="hover:text-slate-900">Dashboard</button>
+          <button onClick={() => router.push('/dashboard')} className="hover:text-slate-900">Dashboard</button>
           <span>/</span>
           <button onClick={() => router.back()} className="hover:text-slate-900">Grünstein-Klettersteig</button>
           <span>/</span>
