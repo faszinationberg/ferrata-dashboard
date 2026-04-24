@@ -39,8 +39,15 @@ export async function middleware(request: NextRequest) {
   )
 
   // 2. AUTH-CHECK
-  const { data: { user } } = await supabase.auth.getUser()
+//  const { data: { user } } = await supabase.auth.getUser()
   
+// Ändere:
+// const { data: { user } } = await supabase.auth.getUser()
+
+// In (zum Testen):
+const { data: { session } } = await supabase.auth.getSession()
+const user = session?.user
+
   // LOG FÜR DICH IM TERMINAL
   console.log(`Middleware: ${pathname} | User: ${user ? 'EINGELOGGT' : 'NICHT EINGELOGGT'}`)
 
