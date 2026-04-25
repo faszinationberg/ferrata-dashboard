@@ -101,17 +101,11 @@ export default function Home() {
   setLoading(false);
 }
 
-  useEffect(() => {
-    async function checkUserAndLoadData() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push('/login');
-        return;
-      }
-      await loadData();
-    }
-    checkUserAndLoadData();
-  }, [router]);
+useEffect(() => {
+    // Da die Middleware uns nur hierher lässt, wenn wir eingeloggt sind,
+    // können wir die Daten direkt laden.
+    loadData();
+  }, []); // Nur beim Mounten ausführen
 
   useEffect(() => {
     sessionStorage.setItem('f_search', searchQuery);
