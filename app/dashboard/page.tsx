@@ -4,10 +4,13 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation'; 
-import { supabase } from '../../lib/supabase';
 
 import { CloudStatusBadge } from '@/app/components/CloudStatusBadge';
 import { useAuth } from '@/app/hooks/useAuth';
+
+// Lösche: import { supabase } from '../../lib/supabase';
+// Nutze stattdessen (falls du die Datei lib/supabase.ts wie gestern besprochen angepasst hast):
+import { createClient } from '../../lib/supabase';
 
 interface Ferrata {
   id: string;
@@ -27,7 +30,7 @@ interface Report {
 }
 
 export default function Home() {
-  const router = useRouter(); 
+   const supabase = createClient(); // Initialisiere den Client hier am Anfang der Komponenonst router = useRouter(); 
 
   const [ferratas, setFerratas] = useState<Ferrata[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
