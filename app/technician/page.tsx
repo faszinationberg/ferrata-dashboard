@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabase';
+import { createClient } from '../../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { CloudStatusBadge } from '../components/CloudStatusBadge';
 
 export default function GlobalTechnicianPage() {
   const router = useRouter();
   // Nutze userEmail und loading aus deinem useAuth Hook
+  const supabase = createClient();
   const { userEmail, userProfile, loading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);

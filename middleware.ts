@@ -1,12 +1,9 @@
-
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
+    request: { headers: request.headers },
   })
 
   const supabase = createServerClient(
@@ -18,49 +15,47 @@ export async function middleware(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: CookieOptions) {
-          // WICHTIG für Vercel: Cookies müssen explizit in die Response
+          request.cookies.set({ name, value, ...options })
+          response = NextResponse.next({ request: { headers: request.headers } })
           response.cookies.set({ name, value, ...options })
         },
         remove(name: string, options: CookieOptions) {
+          request.cookies.set({ name, value: '', ...options })
+          response = NextResponse.next({ request: { headers: request.headers } })
           response.cookies.set({ name, value: '', ...options })
         },
       },
+      // WICHTIG: Die Cookie-Optionen müssen hier identisch sein
+      cookieOptions: {
+        name: 'sb-auth-token',
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+      }
     }
   )
 
-  // Nutze getSession statt getUser für den Cloud-Check (schneller & stabiler auf Vercel)
-  const { data: { session } } = await supabase.auth.getSession()
-  const user = session?.user
-
+  // Auth-Check
+  const { data: { user } } = await supabase.auth.getUser()
   const { pathname } = request.nextUrl
 
-  // 1. Statische Dateien & API komplett ignorieren
-  if (
-    pathname.startsWith('/_next') || 
-    pathname.startsWith('/api') || 
-    pathname.includes('.') || // Ignoriert .js, .css, .png etc.
-    pathname === '/favicon.ico'
-  ) {
+  console.log(`PFAD: ${pathname} | USER: ${user ? 'EINGELOGGT' : 'NICHT GEFUNDEN'}`)
+
+  // Statische Pfade ignorieren
+  if (pathname.startsWith('/_next') || pathname.includes('.') || pathname === '/favicon.ico') {
     return response
   }
 
-  // 2. Pfad-Logik
-  const isPublicPath = 
-    pathname === '/' || 
-    pathname === '/login' || 
-    pathname === '/report' || 
-    pathname.includes('/report')
+  const isPublicPath = pathname === '/' || pathname === '/login' || pathname.includes('/report')
 
-  // Wenn nicht eingeloggt und geschützter Pfad -> Login
-  if (!isPublicPath && !user) {
+  if (!user && !isPublicPath) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.searchParams.set('redirectedFrom', pathname)
     return NextResponse.redirect(url)
   }
 
-  // Wenn eingeloggt und auf Login -> Dashboard
-  if (pathname === '/login' && user) {
+  if (user && pathname === '/login') {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 

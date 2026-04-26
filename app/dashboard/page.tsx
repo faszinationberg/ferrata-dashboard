@@ -8,8 +8,7 @@ import { useRouter } from 'next/navigation';
 import { CloudStatusBadge } from '@/app/components/CloudStatusBadge';
 import { useAuth } from '@/app/hooks/useAuth';
 
-// Lösche: import { supabase } from '../../lib/supabase';
-// Nutze stattdessen (falls du die Datei lib/supabase.ts wie gestern besprochen angepasst hast):
+// Nutzt den SSR-kompatiblen Client
 import { createClient } from '../../lib/supabase';
 
 interface Ferrata {
@@ -30,7 +29,8 @@ interface Report {
 }
 
 export default function Home() {
-   const supabase = createClient(); // Initialisiere den Client hier am Anfang der Komponenonst router = useRouter(); 
+  const router = useRouter(); 
+  const supabase = createClient(); // Initialisiere den Client hier am Anfang der Komponente
 
   const [ferratas, setFerratas] = useState<Ferrata[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
@@ -84,35 +84,44 @@ export default function Home() {
     return matchesSearch && matchesCountry && matchesRegion && matchesMountain && matchesStatus && matchesDiff;
   });
 
-async function loadData() {
-  setLoading(true);
-  try {
-    const { data: ferrataData, error: fError } = await supabase
-      .from('ferratas')
-      .select('*')
-      .order('name');
-    if (fError) throw fError;
-    setFerratas(ferrataData || []);
+  async function loadData() {
+    setLoading(true);
+    try {
+      // 1. Ferratas laden
+      const { data: ferrataData, error: fError } = await supabase
+        .from('ferratas')
+        .select('*')
+        .order('name');
+      
+      if (fError) throw fError;
+      setFerratas(ferrataData || []);
 
-    const { data: reportData } = await supabase
-      .from('reports')
-      .select('id, ferrata_id, verified');
-    setReports(reportData || []);
+      // 2. Reports laden
+      // Hinweis: 'resolved' wurde hier entfernt, bis die Spalte existiert
+      const { data: reportData, error: rError } = await supabase
+        .from('reports')
+        .select('id, ferrata_id, verified');
+      
+      if (rError) {
+        console.warn("Reports konnten nicht vollständig geladen werden (evtl. Spalte resolved fehlt):", rError.message);
+      } else {
+        setReports(reportData || []);
+      }
 
-  } catch (err) {
-    console.error("Fehler beim Laden:", err);
-  } finally {
-    // Dieser Block wird IMMER ausgeführt, egal ob Erfolg oder Error
-    setLoading(false); 
+    } catch (err) {
+      console.error("Kritischer Fehler beim Laden:", err);
+    } finally {
+      // Dieser Block wird IMMER ausgeführt, egal ob Erfolg oder Error
+      // Das verhindert das endlose Hängenbleiben im Lade-Screen
+      setLoading(false); 
+    }
   }
-}
 
-
-useEffect(() => {
+  useEffect(() => {
     // Da die Middleware uns nur hierher lässt, wenn wir eingeloggt sind,
     // können wir die Daten direkt laden.
     loadData();
-  }, []); // Nur beim Mounten ausführen
+  }, []); 
 
   useEffect(() => {
     sessionStorage.setItem('f_search', searchQuery);
@@ -122,7 +131,6 @@ useEffect(() => {
     sessionStorage.setItem('f_status', filterStatus);
     sessionStorage.setItem('f_diff', filterDifficulty);
   }, [searchQuery, filterCountry, filterRegion, filterMountainGroup, filterStatus, filterDifficulty]);
-
 
   const handleCreateFerrata = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,11 +155,11 @@ useEffect(() => {
   };
 
   const handleDeleteFerrata = async (e: React.MouseEvent, ferrata: Ferrata) => {
-  e.preventDefault(); // Verhindert, dass man auf die Detailseite weitergeleitet wird
-  e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
 
-  const confirmDelete = window.confirm(
-    `Bist du sicher, dass du "${ferrata.name}" unwiderruflich löschen möchtest? Alle zugehörigen Meldungen und Daten gehen verloren.`
+    const confirmDelete = window.confirm(
+      `Bist du sicher, dass du "${ferrata.name}" unwiderruflich löschen möchtest? Alle zugehörigen Meldungen und Daten gehen verloren.`
     );
 
     if (confirmDelete) {
@@ -162,8 +170,6 @@ useEffect(() => {
           .eq('id', ferrata.id);
 
         if (error) throw error;
-
-        // Lokalen State aktualisieren, ohne die ganze Seite neu zu laden
         setFerratas(prev => prev.filter(f => f.id !== ferrata.id));
         
       } catch (err: any) {
@@ -180,6 +186,15 @@ useEffect(() => {
     };
   };
 
+  const resetFilters = () => {
+    setSearchQuery('');
+    setFilterCountry('All');
+    setFilterRegion('All');
+    setFilterMountainGroup('All');
+    setFilterStatus('All');
+    setFilterDifficulty('All');
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
@@ -190,15 +205,6 @@ useEffect(() => {
       </div>
     );
   }
-
-  const resetFilters = () => {
-    setSearchQuery('');
-    setFilterCountry('All');
-    setFilterRegion('All');
-    setFilterMountainGroup('All');
-    setFilterStatus('All');
-    setFilterDifficulty('All');
-  };
 
   return (
     <main className="min-h-screen bg-[#fafafa] text-slate-900 font-sans selection:bg-blue-100">
@@ -215,10 +221,8 @@ useEffect(() => {
           <CloudStatusBadge />
         </header>
 
-        {/* --- ÜBERARBEITETE FILTER BAR --- */}
+        {/* --- FILTER BAR --- */}
         <div className="space-y-8 mb-12">
-          
-          {/* 1. SUCHE (Full Width) */}
           <div className="relative group max-w-3xl mx-auto">
             <div className="absolute inset-y-0 left-6 flex items-center pointer-events-none">
               <span className="text-xl grayscale opacity-30 group-focus-within:opacity-100 group-focus-within:grayscale-0 transition-all">🔍</span>
@@ -232,11 +236,8 @@ useEffect(() => {
             />
           </div>
 
-          {/* 2. FILTER-ZEILE (Horizontaler Scroll auf Mobile) */}
           <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-center justify-center gap-3">
-              
-              {/* Geografie Gruppe */}
               <div className="flex items-center gap-2 bg-slate-100/50 p-1.5 rounded-2xl border border-slate-100">
                 <select 
                   value={filterCountry} 
@@ -268,7 +269,6 @@ useEffect(() => {
                 </select>
               </div>
 
-              {/* Status & Schwierigkeit */}
               <div className="flex items-center gap-2">
                 <select 
                   value={filterStatus} 
@@ -295,7 +295,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* 3. INFO LEISTE (Counter & Reset) */}
             <div className="flex items-center justify-center gap-6 pt-2">
               <div className="flex items-center gap-2 bg-white px-4 py-1.5 rounded-full border border-slate-100 shadow-sm">
                 <span className="w-2 h-2 rounded-full bg-blue-500"></span>
@@ -330,91 +329,83 @@ useEffect(() => {
           </button>
 
           {filteredFerratas.map((f) => {
-  const stats = getStats(f.id);
-  const statusConfig: Record<string, { label: string; color: string; dot: string; bg: string }> = {
-    open: { label: 'Geöffnet', color: 'text-emerald-600', dot: 'bg-emerald-500', bg: 'bg-emerald-50' },
-    closed: { label: 'Gesperrt', color: 'text-red-600', dot: 'bg-red-500', bg: 'bg-red-50' },
-    maintenance: { label: 'Wartung', color: 'text-orange-600', dot: 'bg-orange-500', bg: 'bg-orange-50' },
-    winter: { label: 'Winterpause', color: 'text-blue-600', dot: 'bg-blue-500', bg: 'bg-blue-50' },
-    unknown: { label: 'Unbekannt', color: 'text-slate-400', dot: 'bg-slate-300', bg: 'bg-slate-50' }
-  };
+            const stats = getStats(f.id);
+            const statusConfig: Record<string, { label: string; color: string; dot: string; bg: string }> = {
+              open: { label: 'Geöffnet', color: 'text-emerald-600', dot: 'bg-emerald-500', bg: 'bg-emerald-50' },
+              closed: { label: 'Gesperrt', color: 'text-red-600', dot: 'bg-red-500', bg: 'bg-red-50' },
+              maintenance: { label: 'Wartung', color: 'text-orange-600', dot: 'bg-orange-500', bg: 'bg-orange-50' },
+              winter: { label: 'Winterpause', color: 'text-blue-600', dot: 'bg-blue-500', bg: 'bg-blue-50' },
+              unknown: { label: 'Unbekannt', color: 'text-slate-400', dot: 'bg-slate-300', bg: 'bg-slate-50' }
+            };
 
-  const currentStatus = statusConfig[f.status?.toLowerCase()] || statusConfig.unknown;
+            const currentStatus = statusConfig[f.status?.toLowerCase()] || statusConfig.unknown;
 
-  return (
-    <div key={f.id} className="group bg-white border border-slate-200/60 rounded-3xl p-7 transition-all duration-300 hover:border-blue-200 hover:shadow-md flex flex-col justify-between animate-in fade-in zoom-in-95 duration-300 relative overflow-hidden">
-      
-      {/* LÖSCH-BUTTON: Jetzt mit Rollenprüfung (Developer) */}
-      {userRole === 'developer' && (
-        <button 
-          onClick={(e) => handleDeleteFerrata(e, f)}
-          className="absolute top-5 right-5 w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-300 hover:bg-red-50 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 z-20"
-          title="Klettersteig löschen"
-        >
-          <span className="text-xs font-bold text-[10px]">✕</span>
-        </button>
-      )}
+            return (
+              <div key={f.id} className="group bg-white border border-slate-200/60 rounded-3xl p-7 transition-all duration-300 hover:border-blue-200 hover:shadow-md flex flex-col justify-between animate-in fade-in zoom-in-95 duration-300 relative overflow-hidden">
+                
+                {userRole === 'developer' && (
+                  <button 
+                    onClick={(e) => handleDeleteFerrata(e, f)}
+                    className="absolute top-5 right-5 w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-300 hover:bg-red-50 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 z-20"
+                    title="Klettersteig löschen"
+                  >
+                    <span className="text-xs font-bold text-[10px]">✕</span>
+                  </button>
+                )}
 
-      <div>
-        <div className="flex justify-between items-start mb-6">
-          {/* STATUS ANZEIGE */}
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border border-transparent transition-all ${currentStatus.bg}`}>
-            <div className={`h-1.5 w-1.5 rounded-full ${currentStatus.dot} ${f.status === 'open' || f.status === 'maintenance' ? 'animate-pulse' : ''}`}></div>
-            <span className={`text-[9px] font-black uppercase tracking-wider ${currentStatus.color}`}>
-              {currentStatus.label}
-            </span>
-          </div>
+                <div>
+                  <div className="flex justify-between items-start mb-6">
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border border-transparent transition-all ${currentStatus.bg}`}>
+                      <div className={`h-1.5 w-1.5 rounded-full ${currentStatus.dot} ${f.status === 'open' || f.status === 'maintenance' ? 'animate-pulse' : ''}`}></div>
+                      <span className={`text-[9px] font-black uppercase tracking-wider ${currentStatus.color}`}>
+                        {currentStatus.label}
+                      </span>
+                    </div>
+                    {stats.unverified > 0 && (
+                      <div className="h-2.5 w-2.5 bg-amber-400 rounded-full shadow-[0_0_10px_rgba(251,191,36,0.6)] border-2 border-white"></div>
+                    )}
+                  </div>
 
-          {/* Warnpunkt für Meldungen */}
-          {stats.unverified > 0 && (
-            <div className="h-2.5 w-2.5 bg-amber-400 rounded-full shadow-[0_0_10px_rgba(251,191,36,0.6)] border-2 border-white"></div>
-          )}
-        </div>
+                  <h2 className="text-2xl font-bold text-slate-900 tracking-tight mb-2 group-hover:text-blue-600 transition-colors leading-tight">
+                    {f.name}
+                  </h2>
+                  
+                  <div className="inline-block px-2.5 py-1 border border-slate-200 rounded-lg mb-6 bg-slate-50/30">
+                     <span className="text-[10px] font-black text-slate-400 tracking-widest uppercase italic">CAT {f.difficulty}</span>
+                  </div>
 
-        {/* TITEL */}
-        <h2 className="text-2xl font-bold text-slate-900 tracking-tight mb-2 group-hover:text-blue-600 transition-colors leading-tight">
-          {f.name}
-        </h2>
-        
-        {/* KATEGORIE: Jetzt dezent (Border statt schwarzer Hintergrund) */}
-        <div className="inline-block px-2.5 py-1 border border-slate-200 rounded-lg mb-6 bg-slate-50/30">
-           <span className="text-[10px] font-black text-slate-400 tracking-widest uppercase italic">CAT {f.difficulty}</span>
-        </div>
+                  <div className="space-y-1 mb-8 border-l-2 border-slate-50 pl-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest w-12">Land</span>
+                      <span className="text-[11px] font-bold text-slate-600">{f.country}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest w-12">Region</span>
+                      <span className="text-[11px] font-bold text-slate-600">{f.region || '—'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest w-12">Gruppe</span>
+                      <span className="text-[11px] font-bold text-blue-500/70">{f.mountain_group || '—'}</span>
+                    </div>
+                  </div>
+                </div>
 
-        {/* GEOGRAFISCHE VERORTUNG */}
-        <div className="space-y-1 mb-8 border-l-2 border-slate-50 pl-4">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest w-12">Land</span>
-            <span className="text-[11px] font-bold text-slate-600">{f.country}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest w-12">Region</span>
-            <span className="text-[11px] font-bold text-slate-600">{f.region || '—'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest w-12">Gruppe</span>
-            <span className="text-[11px] font-bold text-blue-500/70">{f.mountain_group || '—'}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* AKTIONEN */}
-      <div className="grid grid-cols-2 gap-3 mt-auto">
-        <Link 
-          href={`/ferrata/${f.id}/maintenance`}
-          className="py-3.5 rounded-2xl text-[10px] font-black transition-all flex items-center justify-center gap-2 border bg-white text-slate-500 border-slate-100 hover:border-orange-200 hover:text-orange-600 hover:bg-orange-50/30 shadow-sm uppercase tracking-tighter"
-        >
-          Wartung
-        </Link>
-        <Link 
-          href={`/ferrata/${f.id}`}
-          className="bg-slate-900 text-white py-3.5 rounded-2xl text-[10px] font-black hover:bg-blue-600 transition-all flex items-center justify-center gap-2 tracking-tighter uppercase shadow-md shadow-slate-100"
-        >
-          Details
-        </Link>
-      </div>
-    </div>
-  );
+                <div className="grid grid-cols-2 gap-3 mt-auto">
+                  <Link 
+                    href={`/ferrata/${f.id}/maintenance`}
+                    className="py-3.5 rounded-2xl text-[10px] font-black transition-all flex items-center justify-center gap-2 border bg-white text-slate-500 border-slate-100 hover:border-orange-200 hover:text-orange-600 hover:bg-orange-50/30 shadow-sm uppercase tracking-tighter"
+                  >
+                    Wartung
+                  </Link>
+                  <Link 
+                    href={`/ferrata/${f.id}`}
+                    className="bg-slate-900 text-white py-3.5 rounded-2xl text-[10px] font-black hover:bg-blue-600 transition-all flex items-center justify-center gap-2 tracking-tighter uppercase shadow-md shadow-slate-100"
+                  >
+                    Details
+                  </Link>
+                </div>
+              </div>
+            );
           })}
         </div>
         
@@ -427,7 +418,6 @@ useEffect(() => {
                 <button onClick={() => setShowAddModal(false)} className="text-slate-300 hover:text-slate-900 transition-colors text-2xl">×</button>
               </div>
 
-              {/* Wichtig: Das onSubmit gehört an das Form-Tag */}
               <form onSubmit={handleCreateFerrata} className="p-8 space-y-6">
                 <div className="space-y-4">
                   <div>
@@ -440,7 +430,6 @@ useEffect(() => {
                       placeholder="Name des Klettersteigs"
                     />
                   </div>
-                  {/* ... andere Felder ... */}
                 </div>
 
                 <button 

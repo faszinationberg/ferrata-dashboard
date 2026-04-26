@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { supabase } from '../../lib/supabase';
+import { createClient } from '../../lib/supabase';
 
 interface Ferrata {
   id: string;
@@ -16,6 +16,7 @@ interface Ferrata {
 export default function PublicReportSearch() {
   const [ferratas, setFerratas] = useState<Ferrata[]>([]);
   const [loading, setLoading] = useState(true);
+const supabase = createClient();
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,22 +89,42 @@ export default function PublicReportSearch() {
             />
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <div className="flex items-center gap-2 bg-slate-100/50 p-1.5 rounded-2xl border border-slate-100">
-              <select value={filterCountry} onChange={(e) => { setFilterCountry(e.target.value); setFilterRegion('All'); setFilterMountainGroup('All'); }} className="bg-white border-none rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm cursor-pointer">
-                <option value="All">Land</option>
-                {countries.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterMountainGroup('All'); }} disabled={regions.length === 0} className="bg-white border-none rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm cursor-pointer">
-                <option value="All">Region</option>
-                {regions.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-              <select value={filterMountainGroup} onChange={(e) => setFilterMountainGroup(e.target.value)} disabled={mountainGroups.length === 0} className="bg-white border-none rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm cursor-pointer">
-                <option value="All">Gebirge</option>
-                {mountainGroups.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>
-          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+  {/* Geografie Gruppe: Auf Mobile untereinander, volle Breite */}
+  <div className="flex flex-col sm:flex-row w-full sm:w-auto items-stretch sm:items-center gap-2 bg-slate-100/50 p-1.5 rounded-2xl border border-slate-100">
+    
+    <select 
+      value={filterCountry} 
+      onChange={(e) => { setFilterCountry(e.target.value); setFilterRegion('All'); setFilterMountainGroup('All'); }} 
+      className="bg-white border-none rounded-xl px-4 py-3 sm:py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm cursor-pointer hover:bg-slate-50 transition-colors"
+    >
+      <option value="All">Land</option>
+      {countries.map(c => <option key={c} value={c}>{c}</option>)}
+    </select>
+
+    <select 
+      value={filterRegion} 
+      onChange={(e) => { setFilterRegion(e.target.value); setFilterMountainGroup('All'); }} 
+      disabled={regions.length === 0} 
+      className="bg-white border-none rounded-xl px-4 py-3 sm:py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm cursor-pointer disabled:opacity-40"
+    >
+      <option value="All">Region</option>
+      {regions.map(r => <option key={r} value={r}>{r}</option>)}
+    </select>
+
+    <select 
+      value={filterMountainGroup} 
+      onChange={(e) => setFilterMountainGroup(e.target.value)} 
+      disabled={mountainGroups.length === 0} 
+      className="bg-white border-none rounded-xl px-4 py-3 sm:py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm cursor-pointer disabled:opacity-40"
+    >
+      <option value="All">Gebirge</option>
+      {mountainGroups.map(m => <option key={m} value={m}>{m}</option>)}
+    </select>
+
+  </div>
+</div>
+
         </div>
 
         {/* RESULTS GRID */}

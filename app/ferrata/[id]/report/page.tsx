@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { supabase } from '../../../../lib/supabase';
+import { createClient } from '../../../../lib/supabase';
 import { report } from 'process';
 
 // Die Übersetzungen bleiben identisch für die Funktionalität
@@ -93,6 +93,7 @@ export default function MobileUserReport() {
   const params = useParams();
   const searchParams = useSearchParams();
   const id = params.id as string;
+  const supabase = createClient();
 
   const [lang, setLang] = useState<keyof typeof translations>('de');
   const t = translations[lang] || translations.de;

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+// Import auf createClient umgestellt
+import { createClient } from '../../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
 interface FerrataStatusBadgeProps {
@@ -21,9 +22,11 @@ const statusOptions = [
 export function FerrataStatusBadge({ ferrataId, initialStatus, onUpdate }: FerrataStatusBadgeProps) {
   const [status, setStatus] = useState(initialStatus || 'unknown');
   const [isEdit, setIsEdit] = useState(false);
+  
+  // Initialisiere den SSR-Client
+  const supabase = createClient();
   const { userEmail } = useAuth();
 
-  // Falls sich der initialStatus von außen ändert (z.B. nach einem Fetch der Elternseite)
   useEffect(() => {
     if (initialStatus) setStatus(initialStatus);
   }, [initialStatus]);
@@ -44,7 +47,9 @@ export function FerrataStatusBadge({ ferrataId, initialStatus, onUpdate }: Ferra
       if (statusError) throw statusError;
 
       // 2. Automatisches Audit-Log schreiben
+      // getUser() ist hier wichtig, um die ID für das Log zu bekommen
       const { data: { user } } = await supabase.auth.getUser();
+      
       await supabase.from('maintenance_logs').insert([{
         ferrata_id: ferrataId,
         user_id: user?.id,
@@ -57,7 +62,6 @@ export function FerrataStatusBadge({ ferrataId, initialStatus, onUpdate }: Ferra
       setStatus(newStatus);
       setIsEdit(false);
       
-      // Falls die Elternseite ihre Daten neu laden muss
       if (onUpdate) onUpdate();
 
     } catch (err: any) {

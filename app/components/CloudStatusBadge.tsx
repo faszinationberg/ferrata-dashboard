@@ -2,24 +2,28 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabase';
+import { createClient } from '../../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
 export function CloudStatusBadge() {
   const router = useRouter();
+  const supabase = createClient();
   const { userEmail, userRole, userProfile, loading } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
+    try {
+      await supabase.auth.signOut();
+      window.location.href = '/login';
+    } catch (err) {
+      console.error('Logout Fehler:', err);
+    }
   };
 
   if (loading) return <div className="h-10 w-32 bg-slate-50 animate-pulse rounded-full" />;
 
   return (
     <div className="relative">
-      {/* Das Badge als interaktiver Button */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-3 px-4 py-2 bg-white border border-slate-100 rounded-full shadow-sm hover:border-blue-200 transition-all active:scale-[0.98] group"
@@ -29,12 +33,11 @@ export function CloudStatusBadge() {
             {userRole ? userRole : 'Rolle laden...'}
           </span>
           <span className="text-[10px] font-bold text-slate-700">
-            {/* ANZEIGE: Name des Nutzers, Fallback auf gekürzte Email */}
-            {userProfile?.full_name ? userProfile.full_name : (userEmail ? userEmail.split('@')[0] : 'Gast')}
+            {/* ANZEIGE: Volle Email-Adresse falls kein Name vorhanden ist */}
+            {userProfile?.full_name ? userProfile.full_name : (userEmail ? userEmail : 'Gast')}
           </span>
         </div>
 
-        {/* Trennstrich */}
         <div className="h-4 w-[1px] bg-slate-100 mx-1"></div>
         
         <div className="flex items-center gap-2">
@@ -48,11 +51,9 @@ export function CloudStatusBadge() {
         </div>
       </button>
 
-      {/* Dropdown Menü */}
       {isOpen && (
         <>
           <div className="fixed inset-0 z-[100]" onClick={() => setIsOpen(false)} />
-          
           <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-2xl shadow-2xl z-[110] py-2 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
             <div className="px-4 py-2 border-b border-slate-50 mb-1">
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Angemeldet als</p>

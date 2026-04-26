@@ -2,7 +2,7 @@
 
 import { useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { supabase } from '../../../../lib/supabase';
+import { createClient } from '../../../../lib/supabase';
 
 import { CloudStatusBadge } from '../../../components/CloudStatusBadge';
 import { FerrataStatusBadge } from '../../../components/FerrataStatusBadge';
@@ -22,6 +22,7 @@ export default function MaintenanceCenter() {
   const params = useParams();
   const id = params.id as string;
 
+  const supabase = createClient();
   // Nutze den Auth-Hook
   const { userRole, userEmail, loading: authLoading } = useAuth();
 

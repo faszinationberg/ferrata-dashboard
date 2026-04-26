@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, Suspense } from 'react';
-// Wir importieren jetzt createClient aus der ursprünglichen supabase.ts
 import { createClient } from '../../lib/supabase'; 
 import { useSearchParams } from 'next/navigation';
 
@@ -10,7 +9,6 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // Nutzt den SSR-fähigen Client
   const supabase = createClient(); 
   const searchParams = useSearchParams();
   const redirectedFrom = searchParams.get('redirectedFrom');
@@ -21,23 +19,37 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+      // 1. Anmeldung via SSR-Client
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ 
+        email, 
+        password 
+      });
+
       if (authError) throw authError;
 
       if (authData?.user) {
-        // ... (Rollen-Check Logik bleibt gleich)
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', authData.user.id).maybeSingle();
+        // 2. Rolle abrufen
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', authData.user.id)
+          .maybeSingle();
+
         const target = redirectedFrom || (profile?.role === 'technician' ? '/technician' : '/dashboard');
         
-        // Der harte Redirect
-        window.location.replace(window.location.origin + target);
+        // 3. Cookie-Synchronisation abwarten
+        // Eine kurze Verzögerung hilft dem Browser, die Cookies stabil zu speichern
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        // 4. Harter Redirect via href
+        // window.location.href erzwingt das Mitsenden der neuen Cookies an die Middleware
+        window.location.href = window.location.origin + target;
       }
     } catch (err: any) {
       alert("Fehler: " + err.message);
       setLoading(false);
     }
   };
-  // ... restliche Komponente
 
   return (
     <div className="max-w-md w-full bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm animate-in fade-in zoom-in-95 duration-500">

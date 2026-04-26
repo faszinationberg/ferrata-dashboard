@@ -3,7 +3,7 @@
 import { useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { supabase } from '../../../lib/supabase'; 
+import { createClient } from '../../../lib/supabase'; 
 
 import { CloudStatusBadge } from '../../components/CloudStatusBadge';
 import { FerrataStatusBadge } from '../../components/FerrataStatusBadge';
@@ -13,6 +13,7 @@ export default function FerrataDetails() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
+  const supabase = createClient();
 
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   const [showTopoModal, setShowTopoModal] = useState(false);
