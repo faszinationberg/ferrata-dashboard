@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { supabase } from '../../../../lib/supabase';
+import { createClient } from '../../../../lib/supabase';
 import { useAuth } from '../../../hooks/useAuth'; 
 import { CloudStatusBadge } from '../../../components/CloudStatusBadge';
 
@@ -10,6 +10,7 @@ export default function InternalDefectReport() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
+  const supabase = createClient();
 //  const { userEmail, loading: authLoading } = useAuth();
 
   const [step, setStep] = useState(1);

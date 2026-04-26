@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabase';
+import { createClient } from '../../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { CloudStatusBadge } from '../components/CloudStatusBadge';
 
 export default function ProfilePage() {
   const router = useRouter();
+  const supabase = createClient();
   const { userEmail, userRole, userProfile, loading: authLoading } = useAuth();
   
   const [loading, setLoading] = useState(false);
