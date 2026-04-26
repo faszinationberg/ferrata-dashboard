@@ -84,25 +84,29 @@ export default function Home() {
     return matchesSearch && matchesCountry && matchesRegion && matchesMountain && matchesStatus && matchesDiff;
   });
 
-  async function loadData() {
+async function loadData() {
   setLoading(true);
-  
-  // Wir fügen .range(0, 2000) oder ein hohes .limit() hinzu
-  const { data: ferrataData, error } = await supabase
-    .from('ferratas')
-    .select('*')
-    .order('name')
-    .range(0, 2000); // Erlaubt das Laden der ersten 2000 Einträge
+  try {
+    const { data: ferrataData, error: fError } = await supabase
+      .from('ferratas')
+      .select('*')
+      .order('name');
+    if (fError) throw fError;
+    setFerratas(ferrataData || []);
 
-  const { data: reportData } = await supabase
-    .from('reports')
-    .select('id, ferrata_id, verified')
-    .eq('resolved', false);
+    const { data: reportData } = await supabase
+      .from('reports')
+      .select('id, ferrata_id, verified');
+    setReports(reportData || []);
 
-  if (ferrataData) setFerratas(ferrataData);
-  if (reportData) setReports(reportData);
-  setLoading(false);
+  } catch (err) {
+    console.error("Fehler beim Laden:", err);
+  } finally {
+    // Dieser Block wird IMMER ausgeführt, egal ob Erfolg oder Error
+    setLoading(false); 
+  }
 }
+
 
 useEffect(() => {
     // Da die Middleware uns nur hierher lässt, wenn wir eingeloggt sind,
