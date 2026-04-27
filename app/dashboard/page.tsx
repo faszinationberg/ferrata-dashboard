@@ -245,30 +245,31 @@ useEffect(() => {
       <div className="max-w-6xl mx-auto px-6 py-12">
         
         {/* HEADER */}
-        <header className="mb-12 flex justify-between items-center">
-          <div>
+        {/* HEADER - RESPONSIVE */}
+        <header className="mb-10 flex flex-col md:flex-row md:justify-between md:items-center gap-6">
+          <div className="text-center md:text-left">
             <h1 className="text-3xl font-light tracking-tight text-slate-900">
-              ferrata<span className="font-semibold">.report</span>
+              ferrata<span className="font-semibold text-blue-600">.report</span>
             </h1>
-            <p className="text-slate-400 text-sm mt-1 tracking-wide font-light">Monitoring & Documentation — G. Ausserhofer</p>
+            <p className="text-slate-400 text-xs mt-1 tracking-wide font-light">Monitoring & Documentation</p>
           </div>
 
-          <div className="flex items-center gap-4">
-    {/* NEU: Button zur Benutzerverwaltung - Nur für Developer sichtbar */}
-    {userRole === 'developer' && (
-      <Link 
-        href="/admin/users"
-        className="bg-white border border-slate-200 text-slate-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm flex items-center gap-2"
-      >
-        <span>👤 Benutzerverwaltung</span>
-      </Link>
-    )}
-    </div>
-          <CloudStatusBadge />
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            {userRole === 'developer' && (
+              <Link 
+                href="/admin/users"
+                className="w-full sm:w-auto bg-white border border-slate-200 text-slate-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm flex items-center justify-center gap-2"
+              >
+                👤 Benutzerverwaltung
+              </Link>
+            )}
+            <CloudStatusBadge />
+          </div>
         </header>
+        </div>
 
         {/* --- FILTER BAR --- */}
-        <div className="space-y-8 mb-12">
+        <div className="space-y-8 mb-12 max-w-6xl mx-auto">
           <div className="relative group max-w-3xl mx-auto">
             <div className="absolute inset-y-0 left-6 flex items-center pointer-events-none">
               <span className="text-xl grayscale opacity-30 group-focus-within:opacity-100 group-focus-within:grayscale-0 transition-all">🔍</span>
@@ -282,85 +283,67 @@ useEffect(() => {
             />
           </div>
 
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <div className="flex items-center gap-2 bg-slate-100/50 p-1.5 rounded-2xl border border-slate-100">
-                <select 
-                  value={filterCountry} 
-                  onChange={(e) => { setFilterCountry(e.target.value); setFilterRegion('All'); setFilterMountainGroup('All'); }}
-                  className="bg-white border-none rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm cursor-pointer hover:bg-slate-50 transition-colors"
-                >
-                  <option value="All">Land</option>
-                  {countries.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+          {/* Filter-Dropdowns */}
+          <div className="flex flex-col gap-4">
+            {/* Location Filter Group */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-100/50 p-2 rounded-[2rem] border border-slate-100">
+              <select 
+                value={filterCountry} 
+                onChange={(e) => { setFilterCountry(e.target.value); setFilterRegion('All'); setFilterMountainGroup('All'); }}
+                className="w-full bg-white border-none rounded-xl px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm"
+              >
+                <option value="All">Land: Alle</option>
+                {countries.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
 
-                <select 
-                  value={filterRegion} 
-                  onChange={(e) => { setFilterRegion(e.target.value); setFilterMountainGroup('All'); }}
-                  disabled={regions.length === 0}
-                  className="bg-white border-none rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm cursor-pointer disabled:opacity-40"
-                >
-                  <option value="All">Region</option>
-                  {regions.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
+              <select 
+                value={filterRegion} 
+                onChange={(e) => { setFilterRegion(e.target.value); setFilterMountainGroup('All'); }}
+                disabled={regions.length === 0}
+                className="w-full bg-white border-none rounded-xl px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm disabled:opacity-40"
+              >
+                <option value="All">Region: Alle</option>
+                {regions.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
 
-                <select 
-                  value={filterMountainGroup} 
-                  onChange={(e) => setFilterMountainGroup(e.target.value)}
-                  disabled={mountainGroups.length === 0}
-                  className="bg-white border-none rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm cursor-pointer disabled:opacity-40"
-                >
-                  <option value="All">Gebirge</option>
-                  {mountainGroups.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <select 
-                  value={filterStatus} 
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="bg-white border border-slate-200/60 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm hover:border-blue-200 transition-all"
-                >
-                  <option value="All">Status: Alle</option>
-                  <option value="unknown">⚪ Unbekannt</option>
-                  <option value="open">🟢 Geöffnet</option>
-                  <option value="closed">🔴 Gesperrt</option>
-                  <option value="maintenance">🟠 Wartung</option>
-                </select>
-
-                <select 
-                  value={filterDifficulty} 
-                  onChange={(e) => setFilterDifficulty(e.target.value)}
-                  className="bg-white border border-slate-200/60 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm hover:border-blue-200 transition-all"
-                >
-                  <option value="All">Schwierigkeit</option>
-                  {['A', 'B', 'C', 'D', 'E', 'F'].map(grade => (
-                    <option key={grade} value={grade}>Kategorie {grade}</option>
-                  ))}
-                </select>
-              </div>
+              <select 
+                value={filterMountainGroup} 
+                onChange={(e) => setFilterMountainGroup(e.target.value)}
+                disabled={mountainGroups.length === 0}
+                className="w-full bg-white border-none rounded-xl px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm disabled:opacity-40"
+              >
+                <option value="All">Gebirge: Alle</option>
+                {mountainGroups.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
             </div>
 
-            <div className="flex items-center justify-center gap-6 pt-2">
-              <div className="flex items-center gap-2 bg-white px-4 py-1.5 rounded-full border border-slate-100 shadow-sm">
-                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em]">
-                  {filteredFerratas.length} <span className="font-light">Objekte gefunden</span>
-                </span>
-              </div>
+            {/* Status & Schwierigkeit Group */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <select 
+                value={filterStatus} 
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="w-full bg-white border border-slate-200/60 rounded-xl px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm"
+              >
+                <option value="All">Status: Alle</option>
+                <option value="unknown">⚪ Unbekannt</option>
+                <option value="open">🟢 Geöffnet</option>
+                <option value="closed">🔴 Gesperrt</option>
+                <option value="maintenance">🟠 Wartung</option>
+              </select>
 
-              {(searchQuery || filterCountry !== 'All' || filterStatus !== 'All' || filterDifficulty !== 'All') && (
-                <button 
-                  onClick={resetFilters}
-                  className="text-[10px] font-black text-red-400 hover:text-red-500 uppercase tracking-widest flex items-center gap-1.5 transition-all group"
-                >
-                  <span className="bg-red-50 p-1 rounded-md group-hover:bg-red-100 transition-colors">✕</span>
-                  Filter zurücksetzen
-                </button>
-              )}
+              <select 
+                value={filterDifficulty} 
+                onChange={(e) => setFilterDifficulty(e.target.value)}
+                className="w-full bg-white border border-slate-200/60 rounded-xl px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none shadow-sm"
+              >
+                <option value="All">Schwierigkeit: Alle</option>
+                {['A', 'B', 'C', 'D', 'E', 'F'].map(grade => (
+                  <option key={grade} value={grade}>Kategorie {grade}</option>
+                ))}
+              </select>
             </div>
           </div>
-        </div>
+
 
         {/* GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

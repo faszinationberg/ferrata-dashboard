@@ -61,7 +61,6 @@ export default function LandingPage() {
         <footer className="pt-12">
           <p className="text-[10px] text-slate-300 font-bold uppercase tracking-[0.25em]">
             Monitoring & Documentation <br/>
-            <span className="font-light text-slate-400">G. Ausserhofer</span>
           </p>
         </footer>
 
