@@ -39,7 +39,7 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   const { pathname } = request.nextUrl
 
-  console.log(`PFAD: ${pathname} | USER: ${user ? 'EINGELOGGT' : 'NICHT GEFUNDEN'}`)
+//  console.log(`PFAD: ${pathname} | USER: ${user ? 'EINGELOGGT' : 'NICHT GEFUNDEN'}`)
 
   // Statische Pfade ignorieren
   if (pathname.startsWith('/_next') || pathname.includes('.') || pathname === '/favicon.ico') {

@@ -8,18 +8,20 @@ function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   
   const supabase = createClient(); 
   const searchParams = useSearchParams();
   const redirectedFrom = searchParams.get('redirectedFrom');
 
+  // --- LOGIN LOGIK ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading) return;
     setLoading(true);
+    setMessage(null);
 
     try {
-      // 1. Anmeldung via SSR-Client
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ 
         email, 
         password 
@@ -28,7 +30,6 @@ function LoginForm() {
       if (authError) throw authError;
 
       if (authData?.user) {
-        // 2. Rolle abrufen
         const { data: profile } = await supabase
           .from('profiles')
           .select('role')
@@ -37,16 +38,36 @@ function LoginForm() {
 
         const target = redirectedFrom || (profile?.role === 'technician' ? '/technician' : '/dashboard');
         
-        // 3. Cookie-Synchronisation abwarten
-        // Eine kurze Verzögerung hilft dem Browser, die Cookies stabil zu speichern
         await new Promise((resolve) => setTimeout(resolve, 100));
-
-        // 4. Harter Redirect via href
-        // window.location.href erzwingt das Mitsenden der neuen Cookies an die Middleware
         window.location.href = window.location.origin + target;
       }
     } catch (err: any) {
-      alert("Fehler: " + err.message);
+      setMessage({ type: 'error', text: err.message });
+      setLoading(false);
+    }
+  };
+
+  // --- PASSWORT VERGESSEN LOGIK ---
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setMessage({ type: 'error', text: "Bitte gib zuerst deine E-Mail-Adresse ein." });
+      return;
+    }
+    
+    setLoading(true);
+    setMessage(null);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/update-password`,
+      });
+
+      if (error) throw error;
+      
+      setMessage({ type: 'success', text: "Reset-Link wurde an deine E-Mail gesendet!" });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
       setLoading(false);
     }
   };
@@ -77,10 +98,20 @@ function LoginForm() {
             autoComplete="email"
           />
         </div>
+        
         <div>
-          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4 mb-1 block">
-            Passwort
-          </label>
+          <div className="flex justify-between items-center mb-1">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-4 block">
+              Passwort
+            </label>
+            <button 
+              type="button"
+              onClick={handleForgotPassword}
+              className="text-[9px] font-bold text-blue-500 hover:text-blue-700 uppercase tracking-tighter mr-2 transition-colors"
+            >
+              Passwort vergessen?
+            </button>
+          </div>
           <input 
             type="password" 
             value={password} 
@@ -92,7 +123,16 @@ function LoginForm() {
           />
         </div>
 
-        {redirectedFrom && (
+        {/* Status-Meldungen (Erfolg oder Fehler) */}
+        {message && (
+          <div className={`text-[9px] font-bold p-3 rounded-xl text-center uppercase tracking-wider border animate-in fade-in slide-in-from-top-1 ${
+            message.type === 'error' ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+          }`}>
+            {message.text}
+          </div>
+        )}
+
+        {redirectedFrom && !message && (
           <div className="bg-blue-50 text-blue-600 text-[9px] font-bold p-3 rounded-xl text-center uppercase tracking-wider border border-blue-100">
             Anmeldung erforderlich für: <br/> {redirectedFrom}
           </div>

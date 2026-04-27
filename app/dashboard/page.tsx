@@ -7,8 +7,6 @@ import { useRouter } from 'next/navigation';
 
 import { CloudStatusBadge } from '@/app/components/CloudStatusBadge';
 import { useAuth } from '@/app/hooks/useAuth';
-
-// Nutzt den SSR-kompatiblen Client
 import { createClient } from '../../lib/supabase';
 
 interface Ferrata {
@@ -20,6 +18,7 @@ interface Ferrata {
   difficulty: string;
   status: string;
   topo_url: string;
+  owner_id: string | null;
 }
 
 interface Report {
@@ -28,12 +27,21 @@ interface Report {
   verified: boolean;
 }
 
+// Interface für die Betreiber-Liste
+interface OwnerProfile {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+}
+
+
 export default function Home() {
   const router = useRouter(); 
   const supabase = createClient(); // Initialisiere den Client hier am Anfang der Komponente
 
   const [ferratas, setFerratas] = useState<Ferrata[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [owners, setOwners] = useState<OwnerProfile[]>([]); // State für Betreiber-Liste
   const [loading, setLoading] = useState(true);
   const [selectedTopo, setSelectedTopo] = useState<Ferrata | null>(null);
 
@@ -41,7 +49,14 @@ export default function Home() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newFerrata, setNewFerrata] = useState({ name: '', region: '', difficulty: 'C' });
 
-  const { userRole } = useAuth();
+   const { userRole, loading: authLoading } = useAuth();
+
+// Schutz: Techniker dürfen nicht ins Dashboard
+  useEffect(() => {
+    if (!authLoading && userRole === 'technician') {
+      router.replace('/technician');
+    }
+  }, [userRole, authLoading, router]);
 
   // Hilfsfunktion zum Laden aus dem Speicher
   const getSavedFilter = (key: string, defaultValue: string) => {
@@ -84,44 +99,66 @@ export default function Home() {
     return matchesSearch && matchesCountry && matchesRegion && matchesMountain && matchesStatus && matchesDiff;
   });
 
-  async function loadData() {
-    setLoading(true);
-    try {
-      // 1. Ferratas laden
-      const { data: ferrataData, error: fError } = await supabase
-        .from('ferratas')
-        .select('*')
-        .order('name');
-      
-      if (fError) throw fError;
-      setFerratas(ferrataData || []);
+async function loadData() {
+  // 1. Sicherheits-Check: Wenn Auth noch lädt, brechen wir hier ab.
+  // Die Funktion wird durch den useEffect (unten) erneut aufgerufen, sobald authLoading false ist.
+  if (authLoading) return;
 
-      // 2. Reports laden
-      // Hinweis: 'resolved' wurde hier entfernt, bis die Spalte existiert
-      const { data: reportData, error: rError } = await supabase
-        .from('reports')
-        .select('id, ferrata_id, verified');
-      
-      if (rError) {
-        console.warn("Reports konnten nicht vollständig geladen werden (evtl. Spalte resolved fehlt):", rError.message);
-      } else {
-        setReports(reportData || []);
-      }
+  setLoading(true);
+  try {
+    // Aktuellen Auth-User abrufen
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
 
-    } catch (err) {
-      console.error("Kritischer Fehler beim Laden:", err);
-    } finally {
-      // Dieser Block wird IMMER ausgeführt, egal ob Erfolg oder Error
-      // Das verhindert das endlose Hängenbleiben im Lade-Screen
-      setLoading(false); 
+    // --- 1. FERRATAS LADEN (RBAC LOGIK) ---
+    let query = supabase.from('ferratas').select('*');
+    
+    // WICHTIG: Nur wenn wir SICHER wissen, dass der User kein 'developer' ist, 
+    // schränken wir die Abfrage auf seine owner_id ein.
+    if (userRole !== 'developer' && user) {
+      console.log("RBAC: Filter auf owner_id aktiv für User:", user.id);
+      query = query.eq('owner_id', user.id);
+    } else {
+      console.log("RBAC: Developer Modus - Alle Daten werden geladen");
     }
-  }
+    
+    const { data: ferrataData, error: fError } = await query.order('name');
+    if (fError) throw fError;
+    setFerratas(ferrataData || []);
 
-  useEffect(() => {
-    // Da die Middleware uns nur hierher lässt, wenn wir eingeloggt sind,
-    // können wir die Daten direkt laden.
+    // --- 2. FALLS DEVELOPER: BETREIBER-LISTE LADEN ---
+    // Wir laden die Profile nur, wenn die Rolle feststeht
+    if (userRole === 'developer') {
+      const { data: ownerData, error: oError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role')
+        .or('role.eq.betreiber,role.eq.beobachter')
+        .eq('is_active', true)
+        .order('full_name');
+      
+      if (!oError) setOwners(ownerData || []);
+    }
+
+    // --- 3. REPORTS LADEN ---
+    const { data: reportData, error: rError } = await supabase
+      .from('reports')
+      .select('id, ferrata_id, verified');
+    
+    if (!rError) setReports(reportData || []);
+
+  } catch (err) {
+    console.error("Fehler beim Laden der Dashboard-Daten:", err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+useEffect(() => {
+  // Warte, bis der Auth-Check fertig ist
+  if (!authLoading) {
     loadData();
-  }, []); 
+  }
+}, [userRole, authLoading]); // Lädt neu, sobald die Rolle bekannt ist
 
   useEffect(() => {
     sessionStorage.setItem('f_search', searchQuery);
@@ -180,10 +217,7 @@ export default function Home() {
 
   const getStats = (id: string) => {
     const relevant = reports.filter(r => r.ferrata_id === id);
-    return {
-      total: relevant.length,
-      unverified: relevant.filter(r => !r.verified).length
-    };
+    return { total: relevant.length, unverified: relevant.filter(r => !r.verified).length };
   };
 
   const resetFilters = () => {
@@ -218,6 +252,18 @@ export default function Home() {
             </h1>
             <p className="text-slate-400 text-sm mt-1 tracking-wide font-light">Monitoring & Documentation — G. Ausserhofer</p>
           </div>
+
+          <div className="flex items-center gap-4">
+    {/* NEU: Button zur Benutzerverwaltung - Nur für Developer sichtbar */}
+    {userRole === 'developer' && (
+      <Link 
+        href="/admin/users"
+        className="bg-white border border-slate-200 text-slate-600 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm flex items-center gap-2"
+      >
+        <span>👤 Benutzerverwaltung</span>
+      </Link>
+    )}
+    </div>
           <CloudStatusBadge />
         </header>
 
@@ -318,6 +364,7 @@ export default function Home() {
 
         {/* GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {userRole === 'developer' && (          
           <button 
             onClick={() => setShowAddModal(true)}
             className="group bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-6 transition-all duration-300 hover:border-blue-300 hover:bg-blue-50/30 flex flex-col items-center justify-center gap-4 min-h-[300px]"
@@ -327,6 +374,7 @@ export default function Home() {
             </div>
             <span className="text-[11px] font-black uppercase tracking-widest text-slate-400 group-hover:text-blue-500">Neuen Steig anlegen</span>
           </button>
+        )}
 
           {filteredFerratas.map((f) => {
             const stats = getStats(f.id);

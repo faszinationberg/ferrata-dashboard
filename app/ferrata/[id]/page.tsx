@@ -9,6 +9,14 @@ import { CloudStatusBadge } from '../../components/CloudStatusBadge';
 import { FerrataStatusBadge } from '../../components/FerrataStatusBadge';
 import { useAuth } from '../../hooks/useAuth'; // Falls du die Rolle für Logik brauchst
 
+// Interface für die Profile (falls noch nicht vorhanden)
+interface OwnerProfile {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  role: string;
+}
+
 export default function FerrataDetails() {
   const router = useRouter();
   const params = useParams();
@@ -21,7 +29,7 @@ export default function FerrataDetails() {
   
   const [ferrata, setFerrata] = useState<any>(null);
   const [defects, setDefects] = useState<any[]>([]);
- // const [userReports, setUserReports] = useState<any[]>([]);
+  const [users, setUsers] = useState<OwnerProfile[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [expandedReport, setExpandedReport] = useState<string | null>(null);
   const [isGlobalEdit, setIsGlobalEdit] = useState(false);
@@ -30,14 +38,24 @@ export default function FerrataDetails() {
   const [isHeaderEdit, setIsHeaderEdit] = useState(false);
   const [isDocEdit, setIsDocEdit] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [owners, setOwners] = useState<OwnerProfile[]>([]);
 
-  const { userRole } = useAuth(); // Nur wenn du userRole für "if (userRole === 'dev')" brauchst
+ // const { userRole } = useAuth(); // Nur wenn du userRole für "if (userRole === 'dev')" brauchst
+  const { userRole, loading: authLoading } = useAuth(); // 'loading' als 'authLoading' umbenennen
 
   const [lightbox, setLightbox] = useState<{ open: boolean, images: string[], index: number }>({
   open: false,
   images: [],
   index: 0
+  
 });
+
+useEffect(() => {
+  // Wenn der User eingeloggt ist und ein Developer ist, lade die Liste
+  if (userRole === 'developer') {
+    fetchOwners();
+  }
+}, [userRole]); // Wird ausgeführt, sobald die Rolle feststeht
 
 const removeDocument = async (index: number) => {
   if (!confirm("Dokument unwiderruflich löschen?")) return;
@@ -186,20 +204,109 @@ const removeSpecialElement = (index: number) => {
   updateField('special_elements', newList);
 };
 
-  const fetchData = async () => {
-    setLoading(true);
-    const { data: ferrataData } = await supabase.from('ferratas').select('*').eq('id', id).single();
-    const { data: reportsData } = await supabase.from('reports').select('*').eq('ferrata_id', id).eq('resolved', false).order('created_at', { ascending: false });
-    const { data: historyData } = await supabase.from('maintenance_logs').select('*').eq('ferrata_id', id).order('date', { ascending: false });
+const fetchOwners = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, role')
+      .eq('role', 'betreiber') // Wir filtern nur nach Betreibern
+      .eq('is_active', true) // Optional: Nur aktive Nutzer anzeigen
+      .order('full_name', { ascending: true });
 
-    if (ferrataData) setFerrata(ferrataData);
-    if (reportsData) {
-      setDefects(reportsData.filter(r => r.verified === true));
-    //  setUserReports(reportsData.filter(r => r.verified === false));
+    if (error) throw error;
+    if (data) setOwners(data);
+  } catch (error) {
+    console.error('Fehler beim Laden der Betreiber:', error);
+  }
+};
+
+const fetchData = async () => {
+  if (authLoading || !userRole) return;
+
+  setLoading(true);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // 1. Ferrata laden (Basisdaten) - Das funktioniert ja bereits stabil
+    let query = supabase.from('ferratas').select('*').eq('id', id);
+    if (userRole !== 'developer' && user) {
+      query = query.eq('owner_id', user.id);
     }
-    if (historyData) setHistory(historyData);
+
+    const { data: ferrataData, error: ferrataError } = await query.single();
+
+    if (ferrataError || !ferrataData) {
+      setFerrata(null);
+      setLoading(false);
+      return; 
+    }
+
+    // --- NEU: ABSICHERUNG DER PROFILE ---
+
+    // 2. Den Namen des aktuell zugewiesenen Betreibers laden (einfacher Einzel-Check)
+    if (ferrataData.owner_id) {
+      const { data: pData } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', ferrataData.owner_id)
+        .single();
+      ferrataData.profiles = pData; // Setzt den Namen für die Anzeige oben
+    } else {
+      ferrataData.profiles = null;
+    }
+
+    // 3. Wenn Developer: Liste für das Dropdown laden (separat!)
+    if (userRole === 'developer') {
+      const { data: oData, error: oError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role')
+        .or('role.eq.betreiber,role.eq.beobachter')
+        .eq('is_active', true)
+        .order('full_name');
+      
+      if (!oError && oData) {
+        setOwners(oData);
+        console.log("Dropdown Liste geladen:", oData.length, "User");
+      } else {
+        console.error("Fehler beim Laden der Dropdown-Liste:", oError);
+      }
+    }
+
+    // 4. Reports & Historie (Nebenbei laden)
+   // 4. Reports & Historie (Robustes Laden)
+const [reportsRes, historyRes] = await Promise.all([
+  supabase.from('reports').select('*').eq('ferrata_id', id).eq('resolved', false).order('created_at', { ascending: false }),
+  supabase.from('maintenance_logs').select('*').eq('ferrata_id', id).order('date', { ascending: false })
+]);
+
+// Falls die DB einen Fehler liefert (der 400er aus deinem Log), 
+// setzen wir einfach ein leeres Array statt abzustürzen
+if (reportsRes.error) {
+  console.warn("Reports konnten nicht geladen werden (RLS?):", reportsRes.error);
+  setDefects([]);
+} else {
+  setDefects(reportsRes.data?.filter((r: any) => r.verified === true) || []);
+}
+
+if (historyRes.error) {
+  console.warn("Logs konnten nicht geladen werden:", historyRes.error);
+  setHistory([]);
+} else {
+  setHistory(historyRes.data || []);
+}
+
+    if (reportsRes.data) setDefects(reportsRes.data.filter((r: any) => r.verified === true));
+    if (historyRes.data) setHistory(historyRes.data);
+
+    // Finalen State setzen
+    setFerrata(ferrataData);
+
+  } catch (err) {
+    console.error("Kritischer Systemfehler:", err);
+  } finally {
     setLoading(false);
-  };
+  }
+};
 
   const verifyReport = async (reportId: string) => {
     const { error } = await supabase.from('reports').update({ verified: true, priority: 'orange' }).eq('id', reportId);
@@ -228,7 +335,30 @@ const removeSpecialElement = (index: number) => {
     } catch (err: any) { alert(err.message); } finally { setLoading(false); }
   };
 
-  useEffect(() => { if (id) fetchData(); }, [id]);
+  useEffect(() => {
+  if (!authLoading) {
+    fetchData();
+  }
+  }, [id, authLoading, userRole]); // Wichtig: authLoading und userRole als Trigger
+
+const handleOwnerChange = async (newOwnerId: string | null) => {
+  try {
+    // In DB speichern
+    await updateField('owner_id', newOwnerId);
+
+    // Den gewählten Betreiber in der Liste suchen
+    const selectedOwner = owners.find(o => o.id === newOwnerId);
+    
+    // UI-State manuell aktualisieren
+    setFerrata((prev: any) => ({
+      ...prev,
+      owner_id: newOwnerId,
+      profiles: selectedOwner ? { full_name: selectedOwner.full_name } : null
+    }));
+  } catch (err) {
+    console.error(err);
+  }
+};
 
   const updateField = async (field: string, value: any) => {
   // 1. Zuerst lokal den State ändern (UI reagiert sofort)
@@ -354,7 +484,18 @@ const removeImage = (index: number) => {
       <div className="w-6 h-6 border-2 border-slate-100 border-t-blue-600 rounded-full animate-spin"></div>
     </div>
   );
-  if (!ferrata) return <div className="p-20 text-center">Anlage nicht gefunden.</div>;
+
+  // Zuerst prüfen, ob wir noch laden (Auth oder Daten)
+  if (loading || authLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="w-6 h-6 border-2 border-slate-100 border-t-blue-600 rounded-full animate-spin"></div>
+    </div>
+  );
+
+  // ERST DANACH prüfen, ob wirklich keine Daten da sind
+  if (!ferrata) return <div className="p-20 text-center text-slate-400 uppercase tracking-widest text-xs">Anlage nicht gefunden oder keine Zugriffsberechtigung.</div>;
+
+//  if (!ferrata) return <div className="p-20 text-center">Anlage nicht gefunden.</div>;
 
   const displayImages = (ferrata.images && ferrata.images.length > 0) ? ferrata.images : [{ url: ferrata.topo_url || '', title: "Übersicht" }];
 
@@ -381,6 +522,7 @@ const removeImage = (index: number) => {
           <div className="bg-white border border-slate-200 rounded-2xl p-8 md:p-10 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative group">
             
             {/* EDIT-STIFT FÜR HEADER */}
+            { (userRole === 'developer') && (
             <button 
               onClick={() => setIsHeaderEdit(!isHeaderEdit)}
               className={`absolute top-4 right-4 p-2 rounded-lg transition-all z-10 text-xs ${
@@ -389,6 +531,7 @@ const removeImage = (index: number) => {
             >
               {isHeaderEdit ? '✓' : '✎'}
             </button>
+            )}
 
             <div className="space-y-3 w-full md:w-auto">
               {/* LAND */}
@@ -495,6 +638,7 @@ const removeImage = (index: number) => {
           <section className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm transition-all relative">
             
             {/* DER STIFT-BUTTON (Oben Rechts) */}
+            { (userRole === 'developer' || userRole === 'betreiber') && (
             <button 
               onClick={() => setIsGlobalEdit(!isGlobalEdit)}
               className={`absolute top-6 right-6 p-3 rounded-xl transition-all z-10 ${
@@ -506,6 +650,7 @@ const removeImage = (index: number) => {
             >
               {isGlobalEdit ? '✓' : '✎'}
             </button>
+            )}
 
             <div className="flex justify-between items-center mb-10 border-b border-slate-50 pb-6 pr-12">
               <div className="space-y-1">
@@ -561,6 +706,31 @@ const removeImage = (index: number) => {
                     isEditable={isGlobalEdit}
                     onSave={(v:string) => updateField('warden_phone', v)} 
                   />
+                  <VerticalDataField 
+                    label="Betreiber" 
+                    value={ferrata.profiles?.full_name || 'Nicht zugewiesen'} 
+                  />
+
+                  {userRole === 'developer' && isGlobalEdit && (
+  <div className="col-span-full bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-4 animate-in fade-in slide-in-from-top-2">
+    <label className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-2 block ml-1">
+      Betreiber zuweisen
+    </label>
+<select 
+  value={ferrata?.owner_id ?? ''} 
+  onChange={(e) => handleOwnerChange(e.target.value || null)}
+  className="w-full bg-white border border-blue-200 rounded-lg p-2 text-xs font-bold text-blue-600 outline-none"
+>
+  <option value="">Kein Betreiber (System-Steig)</option>
+  {owners.map((o) => (
+  <option key={o.id} value={o.id}>
+    {o.full_name || o.email} ({o.role === 'betreiber' ? 'Betreiber' : 'Beobachter'})
+  </option>
+))}
+</select>
+  </div>
+)}
+                  
                 </div>
               </div>
 
@@ -606,6 +776,7 @@ const removeImage = (index: number) => {
           <section className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm transition-all relative">
                 
                 {/* EDIT-STIFT FÜR GEO-DATEN */}
+                { (userRole === 'developer' || userRole === 'betreiber') && (
                 <button 
                   onClick={() => setIsGeoEdit(!isGeoEdit)}
                   className={`absolute top-6 right-6 p-3 rounded-xl transition-all z-10 ${
@@ -617,6 +788,7 @@ const removeImage = (index: number) => {
                 >
                   {isGeoEdit ? '✓' : '✎'}
                 </button>
+                )}
 
                 <div className="mb-10 border-b border-slate-50 pb-6">
                   <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Geo-Daten & Topografie</h3>
@@ -750,6 +922,7 @@ const removeImage = (index: number) => {
         <div className="space-y-12 pt-4 gap-y-6">
           {/* TECHNIK BOX */}
           <section className="bg-white border border-slate-200 rounded-3xl p-8 relative shadow-sm">
+            { (userRole === 'developer' || userRole === 'betreiber') && (
             <button 
               onClick={() => setIsTechEdit(!isTechEdit)}
               className={`absolute top-6 right-6 p-3 rounded-xl transition-all z-10 ${
@@ -758,6 +931,7 @@ const removeImage = (index: number) => {
             >
               {isTechEdit ? '✓' : '✎'}
             </button>
+            )}
 
             <div className="mb-8 border-b border-slate-50 pb-4">
               <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Technische Stammdaten</h3>
@@ -929,6 +1103,7 @@ const removeImage = (index: number) => {
                 )}
                 
                 {/* Editierstift: Jetzt wieder im einheitlichen Blau-Schema */}
+                { (userRole === 'developer' || userRole === 'betreiber') && (
                 <button 
                   onClick={() => setIsMediaEdit(!isMediaEdit)}
                   className={`p-2.5 rounded-xl transition-all z-10 text-xs ${
@@ -940,6 +1115,7 @@ const removeImage = (index: number) => {
                 >
                   {isMediaEdit ? '✓' : '✎'}
                 </button>
+                )}
               </div>
               
               <input 
@@ -1041,6 +1217,7 @@ const removeImage = (index: number) => {
       )}
       
       {/* Editierstift: Konsistent mit Technik & Galerie */}
+      { (userRole === 'developer' || userRole === 'betreiber') && (
       <button 
         type="button"
         onClick={() => setIsDocEdit(!isDocEdit)}
@@ -1052,6 +1229,7 @@ const removeImage = (index: number) => {
       >
         {isDocEdit ? '✓' : '✎'}
       </button>
+      )}
     </div>
     
     <input 
