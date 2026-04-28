@@ -707,7 +707,7 @@ const removeImage = (index: number) => {
                     onSave={(v:string) => updateField('warden_phone', v)} 
                   />
                   <VerticalDataField 
-                    label="Betreiber" 
+                    label="Betreiber-Account" 
                     value={ferrata.profiles?.full_name || 'Nicht zugewiesen'} 
                   />
 

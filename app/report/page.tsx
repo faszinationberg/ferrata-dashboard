@@ -16,7 +16,7 @@ interface Ferrata {
 export default function PublicReportSearch() {
   const [ferratas, setFerratas] = useState<Ferrata[]>([]);
   const [loading, setLoading] = useState(true);
-const supabase = createClient();
+  const supabase = createClient();
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');

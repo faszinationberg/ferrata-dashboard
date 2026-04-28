@@ -101,6 +101,8 @@ export default function MobileUserReport() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [topoUrl, setTopoUrl] = useState<string | null>(null);
+  const [ownerId, setOwnerId] = useState<string | null>(null); // NEU: Betreiber-ID speichern
+  const [ferrataName, setFerrataName] = useState(""); // NEU: Für den E-Mail Betreff
   const [files, setFiles] = useState<FileList | null>(null);
   
   const [formData, setFormData] = useState({
@@ -148,33 +150,26 @@ export default function MobileUserReport() {
     }));
   };
 
-const handleSubmit = async () => {
+  const handleSubmit = async () => {
     if (!files || files.length === 0) return;
     setLoading(true);
     
     try {
       const uploadedUrls = [];
-      // 1. Bilder-Upload (mit Dateiendung für die Galerie)
+      // 1. Bilder-Upload (wie bisher)
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const fileExt = file.name.split('.').pop();
         const path = `${id}/user_${Date.now()}_${i}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('reports')
-          .upload(path, file);
-        
+        const { error: uploadError } = await supabase.storage.from('reports').upload(path, file);
         if (uploadError) throw uploadError;
 
-        const { data: urlData } = supabase.storage
-          .from('reports')
-          .getPublicUrl(path);
-          
+        const { data: urlData } = supabase.storage.from('reports').getPublicUrl(path);
         uploadedUrls.push(urlData.publicUrl);
       }
 
-      // 2. In die Datenbank schreiben (Mapping auf deine SQL-Spalten)
-      const { error: dbError } = await supabase.from('reports').insert([{
+      // 2. Report-Daten vorbereiten
+      const reportEntry = {
         ferrata_id: id,
         type: formData.type,
         description: formData.description,
@@ -182,21 +177,35 @@ const handleSubmit = async () => {
         coordinates: formData.coordinates,
         altitude: formData.altitude,
         reporter_name: formData.reporter_name,
-        reporter_email: formData.contact_email, // Datenbank-Spalte: reporter_email
-        reporter_phone: formData.contact_phone, // Falls du diese Spalte noch per SQL addest (siehe unten)
-        email_opt_in: formData.email_opt_in,
+        reporter_email: formData.contact_email,
+        reporter_phone: formData.contact_phone,
         image_urls: uploadedUrls,
         topo_x: formData.topo_x,
         topo_y: formData.topo_y,
         verified: false,
-        created_at: new Date().toISOString()
-      }]);
+      };
 
+      // 3. In Datenbank speichern
+      const { error: dbError } = await supabase.from('reports').insert([reportEntry]);
       if (dbError) throw dbError;
 
+      // 4. HINTERGRUND-LOGIK: E-Mail senden, wenn kein Betreiber da ist
+      if (!ownerId) {
+        // Wir "feuern" den Request ab, warten aber nicht zwingend auf die Antwort,
+        // damit der User nicht warten muss, falls der Mail-Server langsam ist.
+        supabase.functions.invoke('send-admin-alert', {
+          body: { 
+//            adminEmail: 'info@ferrata.report',
+            adminEmail: 'guentherausserhofer83@gmail.com',
+            ferrataName: ferrataName, // Den Namen haben wir im useEffect geladen
+            reportDetails: reportEntry
+          }
+        }).catch(e => console.error("Background Email Error:", e));
+      }
+
+      // 5. Erfolg anzeigen
       setStep(4);
     } catch (err: any) {
-      console.error("Meldungsfehler Details:", err);
       alert("Fehler: " + err.message);
     } finally {
       setLoading(false);
