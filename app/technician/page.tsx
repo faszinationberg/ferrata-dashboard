@@ -6,10 +6,12 @@ import { createClient } from '../../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { CloudStatusBadge } from '../components/CloudStatusBadge';
 // PDF Importe
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { generateRepairPDF } from '../../lib/pdf-service';
+import { generateMultiRepairPDF } from '../../lib/pdf-service';
 
 export default function GlobalTechnicianPage() {
+  const [selectedRepairs, setSelectedRepairs] = useState<string[]>([]);
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const router = useRouter();
   const supabase = createClient();
   const { userEmail, userProfile, loading: authLoading } = useAuth();
@@ -26,156 +28,6 @@ export default function GlobalTechnicianPage() {
   const [repairReport, setRepairReport] = useState('');
   const [repairImages, setRepairImages] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
-
-
-// --- HILFSFUNKTION FÜR BILDER (Rotation & Proportionen Fix) ---
-const getBase64ImageFromUrl = async (imageUrl: string): Promise<{base64: string, width: number, height: number}> => {
-  const res = await fetch(imageUrl);
-  const blob = await res.blob();
-  
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous"; 
-    img.src = URL.createObjectURL(blob);
-
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-
-      // Browser korrigieren die Rotation meist automatisch, wenn man auf Canvas zeichnet
-      canvas.width = img.width;
-      canvas.height = img.height;
-
-      if (!ctx) {
-        reject(new Error("Canvas Kontext Fehler"));
-        return;
-      }
-
-      ctx.drawImage(img, 0, 0);
-
-      // Wir exportieren als JPEG mit guter Qualität
-      const base64 = canvas.toDataURL("image/jpeg", 0.8);
-      resolve({
-        base64,
-        width: img.width,
-        height: img.height
-      });
-      URL.revokeObjectURL(img.src);
-    };
-    img.onerror = reject;
-  });
-};
-
-// --- DIE HAUPTFUNKTION ---
-const generatePDF = async (d: any) => {
-  const doc = new jsPDF();
-  const date = new Date(d.resolved_at).toLocaleDateString('de-DE');
-
-  // 1. Header & Titel
-  doc.setFontSize(22);
-  doc.setTextColor(15, 23, 42); // Slate-900
-  doc.text("Reparatur-Dokumentation", 14, 22);
-  
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`Anlage: ${d.ferratas?.name || 'Unbekannt'}`, 14, 30);
-  doc.text(`Datum: ${date}`, 14, 35);
-  doc.text(`Techniker: ${userProfile?.full_name || userEmail || 'Nicht angegeben'}`, 14, 40);
-
-  // 2. Tabelle mit technischen Details
-  autoTable(doc, {
-    startY: 50,
-    head: [['Kategorie', 'Details']],
-    body: [
-      ['Mangel / Titel', d.title || d.type || '-'],
-      ['Ort / Position', d.location || 'Nicht angegeben'],
-      ['Arbeitszeit', d.repair_time || '-'],
-      ['Materialeinsatz', d.repair_material || '-'],
-      ['Technischer Bericht', d.repair_report || 'Keine Beschreibung hinterlegt'],
-    ],
-    theme: 'striped',
-    headStyles: { fillColor: [15, 23, 42], fontStyle: 'bold' },
-    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } },
-    styles: { fontSize: 10, cellPadding: 5 }
-  });
-
-  // 3. Bild-Dokumentation (Falls Bilder vorhanden sind)
-  if (d.repair_image_urls && d.repair_image_urls.length > 0) {
-    let currentY = (doc as any).lastAutoTable.finalY + 20;
-    
-    // Überschrift Fotodokumentation
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text("Fotodokumentation", 14, currentY);
-    currentY += 10;
-
-    const maxBoxWidth = 85;  // Breite für ein Bild im 2-Spalten-Layout
-    const maxBoxHeight = 65; // Maximale Höhe pro Bild
-    const margin = 14;
-    const spacing = 10;
-
-    for (let i = 0; i < d.repair_image_urls.length; i++) {
-      try {
-        const imgData = await getBase64ImageFromUrl(d.repair_image_urls[i]);
-        
-        // Seitenverhältnis (Ratio) berechnen
-        const ratio = imgData.width / imgData.height;
-        let printWidth, printHeight;
-
-        if (ratio > 1) {
-          // Querformat
-          printWidth = maxBoxWidth;
-          printHeight = maxBoxWidth / ratio;
-          if (printHeight > maxBoxHeight) {
-            printHeight = maxBoxHeight;
-            printWidth = maxBoxHeight * ratio;
-          }
-        } else {
-          // Hochformat
-          printHeight = maxBoxHeight;
-          printWidth = maxBoxHeight * ratio;
-          if (printWidth > maxBoxWidth) {
-            printWidth = maxBoxWidth;
-            printHeight = maxBoxWidth / ratio;
-          }
-        }
-
-        // Automatischer Seitenumbruch, falls das Bild nicht mehr drauf passt
-        if (currentY + printHeight > 275) {
-          doc.addPage();
-          currentY = 20;
-        }
-
-        // X-Position berechnen (2 Spalten Layout)
-        const xOffset = margin + (i % 2) * (maxBoxWidth + spacing);
-        // Zentrierung innerhalb der Spalte
-        const centeredX = xOffset + (maxBoxWidth - printWidth) / 2;
-
-        doc.addImage(imgData.base64, 'JPEG', centeredX, currentY, printWidth, printHeight);
-
-        // Nach jedem zweiten Bild die Y-Position für die nächste Zeile erhöhen
-        if (i % 2 === 1 || i === d.repair_image_urls.length - 1) {
-          currentY += maxBoxHeight + spacing;
-        }
-      } catch (error) {
-        console.error("Fehler beim Hinzufügen eines Bildes zum PDF:", error);
-      }
-    }
-  }
-
-  // 4. Footer
-  const pageCount = (doc as any).internal.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(150);
-    doc.text(`Seite ${i} von ${pageCount} — Generiert via ferrata.report`, 14, doc.internal.pageSize.height - 10);
-  }
-
-  // 5. Download auslösen
-  const fileName = `Reparatur_${d.ferratas?.name?.replace(/\s+/g, '_')}_${date}.pdf`;
-  doc.save(fileName);
-};
 
   const fetchData = async () => {
     setLoading(true);
@@ -331,28 +183,65 @@ const generatePDF = async (d: any) => {
               <div key={name} className="space-y-3">
                 <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4">{name}</p>
                 <div className="grid gap-2">
-                  {defects.map(d => (
-                    <div 
-                      key={d.id} 
-                      onClick={() => setViewingHistoryDefect(d)}
-                      className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-4 cursor-pointer hover:border-blue-300 transition-all group"
-                    >
-                      <div className="w-1 h-8 bg-emerald-400 rounded-full" />
-                      <div className="flex-1">
-                        <p className="text-[9px] font-bold text-slate-400">
-                          {new Date(d.resolved_at).toLocaleDateString('de-DE')} — {d.repair_time}
-                        </p>
-                        <h4 className="text-xs font-bold text-slate-600">{d.title}</h4>
+                  {defects.map(d => {
+                    const isSelected = selectedRepairs.includes(d.id);
+                    
+                    return (
+                      <div 
+                        key={d.id} 
+                        onClick={() => setViewingHistoryDefect(d)}
+                        className={`bg-white border rounded-2xl p-4 flex items-center gap-4 cursor-pointer transition-all group ${
+                          isSelected ? 'border-blue-500 shadow-md shadow-blue-50' : 'border-slate-100 hover:border-blue-300'
+                        }`}
+                      >
+                        {/* CHECKBOX LOGIK */}
+                        <div 
+                          onClick={(e) => {
+                            e.stopPropagation(); // Verhindert das Öffnen der Lightbox beim Klick auf die Checkbox
+                            if (isSelected) {
+                              setSelectedRepairs(selectedRepairs.filter(id => id !== d.id));
+                            } else {
+                              setSelectedRepairs([...selectedRepairs, d.id]);
+                            }
+                          }}
+                          className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+                            isSelected 
+                              ? 'bg-blue-600 border-blue-600' 
+                              : 'bg-white border-slate-200 group-hover:border-blue-400'
+                          }`}
+                        >
+                          {isSelected && (
+                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+
+                        <div className={`w-1 h-8 rounded-full ${isSelected ? 'bg-blue-600' : 'bg-emerald-400'}`} />
+                        
+                        <div className="flex-1">
+                          <p className="text-[9px] font-bold text-slate-400">
+                            {new Date(d.resolved_at).toLocaleDateString('de-DE')} — {d.repair_time}
+                          </p>
+                          <h4 className={`text-xs font-bold ${isSelected ? 'text-blue-900' : 'text-slate-600'}`}>
+                            {d.title}
+                          </h4>
+                        </div>
+                        
+                        <span className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-black uppercase tracking-tighter">
+                          Details 📄
+                        </span>
                       </div>
-                      <span className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity text-sm">Details 📄</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))
           )}
+          
         </div>
       </div>
+
 
       {/* REPARATUR LIGHTBOX (Offene Mängel) */}
       {selectedDefect && (
@@ -461,16 +350,127 @@ const generatePDF = async (d: any) => {
             </div>
 
             <div className="p-8 bg-slate-50 rounded-b-[2.5rem] flex gap-3">
+
               <button 
-                onClick={() => generatePDF(viewingHistoryDefect)}
-                className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-blue-600 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
+                onClick={async () => {
+                  if (isPdfGenerating) return; // Doppelklicks verhindern
+                  setIsPdfGenerating(true);
+                  
+                  const branding = {
+                    logoUrl: "/logo_ferrata.jpg", // Hier später die URL einfügen
+                    slogan: "Klettersteigbau - Sanierung - Wartung | Alpiner Wegebau - Festigkeitsprüfungen",
+                    footerText: "ferrata.buid — Günther Ausserhofer | info@faszination-berg.com - +39 347 4138336 - Südtirol"
+                  };
+
+                  const pdfData = {
+                    title: "Reparaturbericht",
+                    ferrataName: viewingHistoryDefect.ferratas?.name,
+                    technicianName: userProfile?.full_name || userEmail,
+                    date: new Date(viewingHistoryDefect.resolved_at).toLocaleDateString('de-DE'),
+                    content: {
+                      report: viewingHistoryDefect.repair_report,
+                      material: viewingHistoryDefect.repair_material,
+                      time: viewingHistoryDefect.repair_time,
+                      location: viewingHistoryDefect.location,
+                      images: viewingHistoryDefect.repair_image_urls
+                    }
+                  };
+
+                  try {
+                    await generateRepairPDF(branding, pdfData);
+                  } catch (error) {
+                    console.error("Fehler beim PDF-Export", error);
+                  } finally {
+                    setIsPdfGenerating(false);
+                  }
+                }}
+                disabled={isPdfGenerating}
+                className={`w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl flex items-center justify-center gap-2 transition-all duration-300 transform active:scale-95 ${
+                  isPdfGenerating 
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
+                    : 'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-blue-200 cursor-pointer'
+                }`}
               >
-                <span>📥</span> PDF Protokoll generieren
+                {isPdfGenerating ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                    Wird generiert...
+                  </>
+                ) : (
+                  <>
+                    <span>📥</span> PDF Protokoll generieren
+                  </>
+                )}
               </button>
+
             </div>
           </div>
         </div>
       )}
+  
+{/* DER FLOATING EXPORT BUTTON */}
+{selectedRepairs.length > 0 && (
+  <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-full max-w-md px-6 z-50 animate-in slide-in-from-bottom-10 duration-500">
+    <button
+      onClick={async () => {
+        if (isPdfGenerating) return;
+        setIsPdfGenerating(true);
+        try {
+          const allDefects = Object.values(historyGroups).flat();
+          const dataToExport = allDefects
+            .filter(item => selectedRepairs.includes(item.id))
+            .map((item: any) => ({
+              title: "Reparaturbericht",
+              ferrataName: item.ferratas?.name,
+              technicianName: userProfile?.full_name || userEmail,
+              date: new Date(item.resolved_at).toLocaleDateString('de-DE'),
+              content: {
+                report: item.repair_report,
+                material: item.repair_material,
+                time: item.repair_time,
+                location: item.location,
+                images: item.repair_image_urls
+              }
+            }));
+
+          const branding = {
+            logoUrl: "/logo_ferrata.jpg",
+            slogan: "Klettersteigbau - Sanierung - Wartung | Alpiner Wegebau - Festigkeitsprüfungen",
+            footerText: "ferrata.buid — Günther Ausserhofer | info@faszination-berg.com - +39 347 4138336 - Südtirol"
+          };
+
+          await generateMultiRepairPDF(branding, dataToExport);
+          setSelectedRepairs([]); 
+        } catch (err) {
+          console.error("Multi PDF Error:", err);
+        } finally {
+          setIsPdfGenerating(false);
+        }
+      }}
+      disabled={isPdfGenerating}
+      className={`w-full py-5 rounded-2xl shadow-2xl flex items-center justify-center gap-3 transition-all duration-300 active:scale-95 ${
+        isPdfGenerating 
+          ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
+          : 'bg-slate-900 text-white hover:bg-blue-600 hover:shadow-blue-200 cursor-pointer'
+      }`}
+    >
+      {isPdfGenerating ? (
+        <>
+          <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+          <span className="font-black text-[11px] uppercase tracking-[0.2em]">Generiere...</span>
+        </>
+      ) : (
+        <>
+          <span className="text-xl">📥</span>
+          <span className="font-black text-[11px] uppercase tracking-[0.2em]">
+            {selectedRepairs.length} {selectedRepairs.length === 1 ? 'Bericht' : 'Berichte'} exportieren
+          </span>
+        </>
+      )}
+    </button>
+  </div>
+)}
+
     </main>
   );
 }
