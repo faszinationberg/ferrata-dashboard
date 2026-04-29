@@ -48,7 +48,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: 'Safety Update <onboarding@resend.dev>',
-        to: [guentherausserhofer83@gmail.com],
+        to: ['guentherausserhofer83@gmail.com'],
         subject: `Daily Update: ${items.length} neue Meldungen`,
         html: `<h2>Guten Morgen!</h2><p>Es liegen neue Meldungen für Ihre Klettersteige vor:</p><ul>${reportListHtml}</ul>`
       }),
