@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { createClient } from '../../../../lib/supabase';
 import { useAuth } from '../../../hooks/useAuth'; 
 import { CloudStatusBadge } from '../../../components/CloudStatusBadge';
@@ -12,6 +12,7 @@ export default function InternalDefectReport() {
   const id = params.id as string;
   const supabase = createClient();
 //  const { userEmail, loading: authLoading } = useAuth();
+  const searchParams = useSearchParams();
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -70,72 +71,75 @@ export default function InternalDefectReport() {
     }));
   };
 
- const handleSubmit = async () => {
-    // 1. Validierung (Titel, Typ, Prio, Beschreibung und Bilder sind Pflicht)
-    if (!files || files.length === 0 || !formData.title || !formData.type || !formData.priority || !formData.description) {
-      alert("Bitte füllen Sie alle Pflichtfelder aus (Titel, Typ, Prio, Beschreibung & Bild).");
-      return;
+const handleSubmit = async () => {
+  // 0. URL Parameter prüfen
+  const isInspection = searchParams.get('from_inspection') === 'true';
+
+  // 1. Validierung
+  if (!files || files.length === 0 || !formData.title || !formData.type || !formData.priority || !formData.description) {
+    alert("Bitte füllen Sie alle Pflichtfelder aus.");
+    return;
+  }
+
+  setLoading(true);
+  try {
+    // 2. Bilder Upload Prozess (bleibt gleich)
+    const uploadedUrls: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fileExt = file.name.split('.').pop();
+      const path = `${id}/admin_manual_${Date.now()}_${i}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('reports').upload(path, file);
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from('reports').getPublicUrl(path);
+      uploadedUrls.push(urlData.publicUrl);
     }
 
-    setLoading(true);
-    try {
-      // 2. Bilder Upload Prozess
-      const uploadedUrls: string[] = []; // Variable hier lokal definieren
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const fileExt = file.name.split('.').pop();
-        const path = `${id}/admin_manual_${Date.now()}_${i}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage.from('reports').upload(path, file);
-        if (uploadError) throw uploadError;
+    // 3. Melder-Info zusammenbauen
+    const reporterInfo = userProfile?.full_name 
+      ? `${userProfile.full_name} (${userEmail}${userProfile.phone ? `, Tel: ${userProfile.phone}` : ''})`
+      : `Techniker: ${userEmail}`;
 
-        const { data: urlData } = supabase.storage.from('reports').getPublicUrl(path);
-        uploadedUrls.push(urlData.publicUrl);
-      }
+    // 4. Eintrag in 'defects'
+    const { error: dbError } = await supabase.from('defects').insert([{
+      ferrata_id: id,
+      title: formData.title,
+      type: formData.type,
+      description: formData.description,
+      internal_comment: formData.internal_comment,
+      location: formData.location,
+      coordinates: formData.coordinates,
+      altitude: formData.altitude,
+      image_urls: uploadedUrls,
+      topo_x: formData.topo_x,
+      topo_y: formData.topo_y,
+      priority: formData.priority,
+      reporter_name: reporterInfo, 
+      verified_by_name: userEmail, 
+      verified_at: new Date().toISOString(),
+      resolved: false,
+      
+      // NEU: Kennzeichnung für den Wartungsbericht
+      // Wir nutzen ein Feld wie 'is_inspection_report', oder prüfen später auf das Datum
+      created_at: new Date().toISOString() 
+    }]);
 
-      // 3. Dynamischer Name für den Melder aus dem erweiterten Hook zusammenbauen
-      // Nutzt full_name und phone aus der profiles-Tabelle
-      const reporterInfo = userProfile?.full_name 
-        ? `${userProfile.full_name} (${userEmail}${userProfile.phone ? `, Tel: ${userProfile.phone}` : ''})`
-        : `Wartungsteam: ${userEmail}`;
+    if (dbError) throw dbError;
 
-      // 4. Eintrag direkt in 'defects' (da interner Admin-Prozess)
-      const { error: dbError } = await supabase.from('defects').insert([{
-        ferrata_id: id,
-        title: formData.title,
-        type: formData.type,
-        description: formData.description,
-        internal_comment: formData.internal_comment,
-        location: formData.location,
-        coordinates: formData.coordinates,
-        altitude: formData.altitude,
-        image_urls: uploadedUrls,
-        topo_x: formData.topo_x,
-        topo_y: formData.topo_y,
-        priority: formData.priority,
-        
-        // Melder-Daten (Originalersteller)
-        reporter_name: reporterInfo, 
-        
-        // Verifizierer-Daten (Wer hat es ins System eingepflegt)
-        verified_by_name: userEmail, 
-        verified_at: new Date().toISOString(),
-        
-        resolved: false
-      }]);
-
-      if (dbError) throw dbError;
-
-      // Alles okay -> Zurück zur Übersicht
+    // 5. Navigation nach Erfolg
+    if (isInspection) {
+      alert("Mangel für Wartungsbericht gespeichert!");
+      window.close(); // Schließt den Tab und kehrt zur Inspektion zurück
+    } else {
       router.push(`/ferrata/${id}/maintenance`);
-    } catch (err: any) {
-      console.error("Speicherfehler:", err);
-      alert("Fehler beim Speichern: " + err.message);
-    } finally {
-      setLoading(false);
     }
-  };
-
+  } catch (err: any) {
+    console.error("Speicherfehler:", err);
+    alert("Fehler beim Speichern: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
   const getPrioColor = (p: string) => {
     switch(p) {
       case 'niedrig': return formData.priority === p ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white text-slate-400 border-slate-100';

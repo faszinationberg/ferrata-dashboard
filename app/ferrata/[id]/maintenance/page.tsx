@@ -413,7 +413,34 @@ setHistory(sortedHistory);
               onUpdate={fetchData} // Damit die Wartungshistorie sofort den neuen Log zeigt
             />
         </div>
-        </header>
+        </header> 
+
+
+        {userRole === 'developer' && (
+        // NEUES MODUL: JAHRESINSPEKTION STARTEN 
+        <section className="bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 shadow-xl space-y-6 relative overflow-hidden group">
+          {/* Subtiler Hintergrund-Effekt */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-blue-500/20 transition-all duration-700"></div>
+          
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10">
+            <div>
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-400">Sicherheits-Audit</h3>
+              <h2 className="text-xl font-bold text-white mt-1">Jährliche Inspektion</h2>
+              <p className="text-xs text-slate-400 mt-2 max-w-md leading-relaxed">
+                Starte das geführte Protokoll, um den Gesamtzustand zu prüfen, Altschäden zu verifizieren und die offizielle Freigabe zu dokumentieren.
+              </p>
+            </div>
+            
+            <button 
+              onClick={() => router.push(`/ferrata/${id}/inspections`)}
+              className="w-full md:w-auto bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-blue-900/20 transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-3"
+            >
+              <span>🚀</span> INSPEKTION STARTEN
+            </button>
+          </div>
+        </section>
+        )}
+        
 
         <div className="space-y-6">
           {/* 1. MODUL: USER FEED (REPORTS) */}
@@ -602,6 +629,9 @@ setHistory(sortedHistory);
               </section>
             </div>
           </section>
+
+
+
         </div>
       </div>
 
