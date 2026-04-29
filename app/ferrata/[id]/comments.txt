@@ -1,1 +1,17 @@
 RESEND_API_KEY re_j5RcZesd_N5cAq1nifL1UhmPM6Ta4VzK8
+
+
+
+      // 4. HINTERGRUND-LOGIK: E-Mail senden, wenn kein Betreiber da ist
+      if (!ownerId) {
+        // Wir "feuern" den Request ab, warten aber nicht zwingend auf die Antwort,
+        // damit der User nicht warten muss, falls der Mail-Server langsam ist.
+        supabase.functions.invoke('send-admin-alert', {
+          body: { 
+//            adminEmail: 'info@ferrata.report',
+            adminEmail: 'guentherausserhofer83@gmail.com',
+            ferrataName: ferrataName, // Den Namen haben wir im useEffect geladen
+            reportDetails: reportEntry
+          }
+        }).catch(e => console.error("Background Email Error:", e));
+      }

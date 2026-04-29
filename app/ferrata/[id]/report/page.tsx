@@ -189,20 +189,6 @@ export default function MobileUserReport() {
       const { error: dbError } = await supabase.from('reports').insert([reportEntry]);
       if (dbError) throw dbError;
 
-      // 4. HINTERGRUND-LOGIK: E-Mail senden, wenn kein Betreiber da ist
-      if (!ownerId) {
-        // Wir "feuern" den Request ab, warten aber nicht zwingend auf die Antwort,
-        // damit der User nicht warten muss, falls der Mail-Server langsam ist.
-        supabase.functions.invoke('send-admin-alert', {
-          body: { 
-//            adminEmail: 'info@ferrata.report',
-            adminEmail: 'guentherausserhofer83@gmail.com',
-            ferrataName: ferrataName, // Den Namen haben wir im useEffect geladen
-            reportDetails: reportEntry
-          }
-        }).catch(e => console.error("Background Email Error:", e));
-      }
-
       // 5. Erfolg anzeigen
       setStep(4);
     } catch (err: any) {
