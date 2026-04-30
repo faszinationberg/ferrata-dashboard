@@ -29,7 +29,7 @@ export default function SetPasswordPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200 border border-slate-100 p-10 max-w-md w-full">
+      <div className="bg-white rounded- shadow-2xl shadow-slate-200 border border-slate-100 p-10 max-w-md w-full">
         <header className="mb-8 text-center">
           <h1 className="text-2xl font-light text-slate-900 tracking-tight">System<span className="font-semibold text-blue-600">.Setup</span></h1>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mt-2">Lege dein persönliches Passwort fest</p>

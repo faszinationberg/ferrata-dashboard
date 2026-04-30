@@ -72,7 +72,7 @@ export default function MaintenanceLog() {
         </div>
 
         {/* Die Log-Tabelle */}
-        <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -120,7 +120,7 @@ export default function MaintenanceLog() {
           </table>
         </div>
         
-        <footer className="mt-12 p-8 bg-blue-900 rounded-[2.5rem] text-white flex flex-col md:flex-row justify-between items-center gap-6">
+        <footer className="mt-12 p-8 bg-blue-900 rounded-2xl text-white flex flex-col md:flex-row justify-between items-center gap-6">
           <div>
             <h4 className="font-black text-xl tracking-tight">Vollständiges Archiv exportieren</h4>
             <p className="text-blue-200 text-sm mt-1">Erstellt eine signierte PDF-Zusammenfassung aller Wartungen.</p>

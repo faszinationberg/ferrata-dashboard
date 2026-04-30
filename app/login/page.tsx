@@ -73,7 +73,7 @@ function LoginForm() {
   };
 
   return (
-    <div className="max-w-md w-full bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm animate-in fade-in zoom-in-95 duration-500">
+    <div className="max-w-md w-full bg-white rounded-2xl border border-slate-200 p-10 shadow-sm animate-in fade-in zoom-in-95 duration-500">
       <header className="mb-8 text-center">
         <h1 className="text-2xl font-light tracking-tight text-slate-900">
           ferrata<span className="font-semibold text-blue-600">.report</span>

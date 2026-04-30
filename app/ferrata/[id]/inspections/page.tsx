@@ -229,7 +229,7 @@ export default function InspectionDashboard() {
       {/* --- LIGHTBOX EDITIEREN --- */}
       {editingDefect && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col border-2 border-blue-500/20">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col border-2 border-blue-500/20">
             <div className="p-8 border-b border-blue-50 flex justify-between items-start bg-blue-50/30 text-slate-900">
               <div>
                 <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2"><span>📝</span> Mangel bearbeiten</h2>

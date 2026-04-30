@@ -105,14 +105,14 @@ export default function LandingPage() {
         </header>
 
         {/* INFO BOX - Sanftes Blau (wie im neuen Report-Step 0) */}
-        <section className="bg-blue-50/50 border border-blue-100/50 p-8 rounded-[2.5rem] shadow-sm">
+        <section className="bg-blue-50/50 border border-blue-100/50 p-8 rounded-2xl shadow-sm">
           <p className="text-sm leading-relaxed font-medium text-blue-900/80">
             {t.introText}
           </p>
         </section>
 
         {/* HAUPT-AKTION - Große Karte mit viel White-Space */}
-        <div className="bg-white border border-slate-200/60 p-10 rounded-[2.5rem] shadow-xl shadow-slate-200/20 transition-all hover:shadow-2xl">
+        <div className="bg-white border border-slate-200/60 p-10 rounded-2xl shadow-xl shadow-slate-200/20 transition-all hover:shadow-2xl">
           <div className="flex justify-center mb-8">
              <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center">
                 <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

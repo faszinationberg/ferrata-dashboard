@@ -286,7 +286,7 @@ const fetchData = async () => {
       {/* REPARATUR LIGHTBOX (Offene Mängel) */}
       {selectedDefect && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
             <div className="p-8 border-b border-slate-50 flex justify-between items-start">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">Einsatz dokumentieren</h2>
@@ -349,7 +349,7 @@ const fetchData = async () => {
       {/* DETAIL LIGHTBOX (Historie) */}
       {viewingHistoryDefect && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-xl shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
+          <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl flex flex-col animate-in zoom-in-95 duration-300">
             <div className="p-8 border-b border-slate-50 flex justify-between items-center">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">Reparatur-Details</h2>
@@ -389,7 +389,7 @@ const fetchData = async () => {
               )}
             </div>
 
-            <div className="p-8 bg-slate-50 rounded-b-[2.5rem] flex gap-3">
+            <div className="p-8 bg-slate-50 rounded-b-2xl flex gap-3">
 
               <button 
                 onClick={async () => {

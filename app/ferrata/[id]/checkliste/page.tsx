@@ -68,7 +68,7 @@ export default function ChecklistPage() {
               <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-600 mb-5 ml-4">{section}</h3>
               <div className="space-y-4">
                 {items.filter(i => i.section === section).map(item => (
-                  <div key={item.id} className={`p-6 rounded-[2.5rem] border transition-all duration-300 ${
+                  <div key={item.id} className={`p-6 rounded-2xl border transition-all duration-300 ${
                     item.status ? 'bg-slate-800 border-slate-600' : 'bg-slate-800/40 border-slate-800'
                   }`}>
                     <p className="font-bold text-slate-100 mb-6 leading-tight text-md px-1">{item.task}</p>

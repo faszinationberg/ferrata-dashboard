@@ -1307,7 +1307,7 @@ const removeImage = (index: number) => {
           </div>
         )}
       {/* QR-CODE & REPORT LINK SEKTION */}
-        <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 md:p-12 shadow-sm overflow-hidden relative group">
+        <section className="bg-white border border-slate-200 rounded-2xl p-8 md:p-12 shadow-sm overflow-hidden relative group">
           {/* Subtiler Hintergrund-Akzent */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50/30 rounded-full blur-3xl -mr-32 -mt-32 transition-colors group-hover:bg-blue-100/40"></div>
 

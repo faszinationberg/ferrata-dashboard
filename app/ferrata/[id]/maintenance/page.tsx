@@ -429,7 +429,7 @@ const fetchData = async () => {
 
         {userRole === 'developer' && (
         // NEUES MODUL: JAHRESINSPEKTION STARTEN 
-        <section className="bg-slate-900 border border-slate-800 rounded-[2.5rem] p-8 shadow-xl space-y-6 relative overflow-hidden group">
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl space-y-6 relative overflow-hidden group">
           {/* Subtiler Hintergrund-Effekt */}
           <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-blue-500/20 transition-all duration-700"></div>
           
@@ -455,7 +455,7 @@ const fetchData = async () => {
 
         <div className="space-y-6">
           {/* 1. MODUL: USER FEED (REPORTS) */}
-          <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
+          <section className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm space-y-6">
             <div className="flex justify-between items-center border-b border-slate-50 pb-6">
               <div>
                 <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">User-Feed & Meldungen</h3>
@@ -483,7 +483,7 @@ const fetchData = async () => {
           </section>
 
           {/* 2. MODUL: MÄNGELLISTE (DEFECTS) */}
-          <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-6">
+          <section className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm space-y-6">
   <div className="flex justify-between items-center border-b border-slate-50 pb-6">
     <div>
       <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Offizielle Mängelliste</h3>
@@ -586,7 +586,7 @@ const fetchData = async () => {
           </section>
 
           {/* 3. MODUL: HISTORY */}
-<section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm">
+<section className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
   <h3 className="text-[10px] font-black uppercase text-slate-400 border-b pb-4 mb-8 tracking-[0.2em]">
     Wartungshistorie & Audit-Log
   </h3>
@@ -687,7 +687,7 @@ const fetchData = async () => {
       {/* LIGHTBOX ADMIN / SETUP */}
 {activeLightbox === 'admin' && selectedReport && (
   <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-    <div className="bg-white rounded-[2.5rem] w-full max-w-3xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col">
+    <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col">
       <div className="p-8 border-b border-slate-50 flex justify-between items-start bg-white z-10">
         <div>
           <h2 className="text-xl font-bold tracking-tight">{selectedReport.priority ? "Eintrag bearbeiten" : "Meldung prüfen"}</h2>
@@ -814,7 +814,7 @@ const fetchData = async () => {
       {/* LIGHTBOX REPAIR / WORK */}
       {activeLightbox === 'repair' && selectedReport && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col border-2 border-orange-500/20">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col border-2 border-orange-500/20">
             <div className="p-8 border-b border-orange-50 flex justify-between items-start bg-orange-50/30">
               <div>
                 <h2 className="text-xl font-bold text-orange-900 flex items-center gap-2"><span>🔧</span> Reparatur dokumentieren</h2>
