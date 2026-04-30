@@ -96,64 +96,75 @@ export default function MaintenanceCenter() {
 
   // --- 4. DATA FETCHING ---
 const fetchData = async () => {
-    setLoading(true);
-    try {
-      // 1. Basis-Daten laden (Ferrata, Meldungen, offene Mängel)
-      const { data: ferrataData } = await supabase.from('ferratas').select('name, status, topo_url').eq('id', id).single();
-      const { data: reportsData } = await supabase.from('reports').select('*').eq('ferrata_id', id).eq('verified', false).is('parent_defect_id', null).order('created_at', { ascending: false });
-      const { data: allLinked } = await supabase.from('reports').select('*').eq('ferrata_id', id).not('parent_defect_id', 'is', null);
-      const { data: defectsData } = await supabase.from('defects').select('*').eq('ferrata_id', id).eq('resolved', false);
-      
-      // 2. Historie-Quellen laden
-      // A) Manuelle Einträge aus maintenance_logs
-      const { data: logsData } = await supabase.from('maintenance_logs').select('*').eq('ferrata_id', id);
-      // B) Erledigte Mängel aus defects
-      const { data: resolvedDefects } = await supabase.from('defects').select('*').eq('ferrata_id', id).eq('resolved', true);
+  setLoading(true);
+  try {
+    // 1. Basis-Daten laden (Ferrata, Meldungen, offene Mängel)
+    const { data: ferrataData } = await supabase.from('ferratas').select('name, status, topo_url').eq('id', id).single();
+    const { data: reportsData } = await supabase.from('reports').select('*').eq('ferrata_id', id).eq('verified', false).is('parent_defect_id', null).order('created_at', { ascending: false });
+    const { data: allLinked } = await supabase.from('reports').select('*').eq('ferrata_id', id).not('parent_defect_id', 'is', null);
+    const { data: defectsData } = await supabase.from('defects').select('*').eq('ferrata_id', id).eq('resolved', false);
+    
+    // 2. Historie-Quellen laden
+    // A) Manuelle Einträge aus maintenance_logs
+    const { data: logsData } = await supabase.from('maintenance_logs').select('*').eq('ferrata_id', id);
+    // B) Erledigte Mängel aus defects
+    const { data: resolvedDefects } = await supabase.from('defects').select('*').eq('ferrata_id', id).eq('resolved', true);
+    // C) NEU: Inspektionen laden
+    const { data: inspectionsData } = await supabase.from('inspections').select('*').eq('ferrata_id', id);
 
-      // --- Zuweisung der Basis-Daten ---
-      if (ferrataData) setFerrata(ferrataData);
-      if (reportsData) setUserReports(reportsData);
-      if (defectsData) {
-        setDefects(defectsData.map(d => ({ ...d, children: allLinked?.filter(r => r.parent_defect_id === d.id) || [] }))
-          .sort((a, b) => (priorityRank[a.priority?.toLowerCase()] || 99) - (priorityRank[b.priority?.toLowerCase()] || 99)));
-      }
-
-      // --- Zusammenführung der Historie ---
-      const combinedHistory = [
-  ...(logsData || []).map(log => ({
-    // Wir nehmen created_at, falls date keine Uhrzeit hat (verhindert 02:00 Fehler)
-    date: log.date.includes('T') ? log.date : log.created_at, 
-    description: log.description,
-    type: 'log',
-    log_type: log.log_type,
-    user_name: log.user_name,
-    id: log.id
-  })),
-  ...(resolvedDefects || []).map(d => ({
-    // Auch hier: bevorzugt resolved_at (volle Zeit) nutzen
-    date: d.resolved_at || d.created_at, 
-    description: `REPARATUR ERLEDIGT: ${d.title || d.type}${d.repair_report ? ` — ${d.repair_report}` : ''}`,
-    type: 'repair',
-    user_name: d.verified_by_name,
-    id: d.id,
-    material: d.repair_material
-  }))
-      ];
-
-// --- DIE ENTSCHEIDENDE ÄNDERUNG: SORTIERUNG ---
-// b.date - a.date sortiert absteigend (neueste zuerst)
-const sortedHistory = combinedHistory.sort((a, b) => 
-  new Date(b.date).getTime() - new Date(a.date).getTime()
-);
-
-setHistory(sortedHistory);
-
-    } catch (err) { 
-      console.error("Fetch Error:", err); 
-    } finally { 
-      setLoading(false); 
+    // --- Zuweisung der Basis-Daten ---
+    if (ferrataData) setFerrata(ferrataData);
+    if (reportsData) setUserReports(reportsData);
+    if (defectsData) {
+      setDefects(defectsData.map(d => ({ ...d, children: allLinked?.filter(r => r.parent_defect_id === d.id) || [] }))
+        .sort((a, b) => (priorityRank[a.priority?.toLowerCase()] || 99) - (priorityRank[b.priority?.toLowerCase()] || 99)));
     }
-  };
+
+    // --- Zusammenführung der Historie ---
+    const combinedHistory = [
+      ...(logsData || []).map(log => ({
+        date: log.date.includes('T') ? log.date : log.created_at, 
+        description: log.description,
+        type: 'log',
+        log_type: log.log_type,
+        user_name: log.user_name,
+        id: log.id
+      })),
+      ...(resolvedDefects || []).map(d => ({
+        date: d.resolved_at || d.created_at, 
+        description: `REPARATUR ERLEDIGT: ${d.title || d.type}${d.repair_report ? ` — ${d.repair_report}` : ''}`,
+        type: 'repair',
+        log_type: 'repair', // explizit für das Icon-Mapping
+        user_name: d.verified_by_name,
+        id: d.id,
+        material: d.repair_material
+      })),
+      // NEU: Mapping der Inspektionen in die Historie
+      ...(inspectionsData || []).map(insp => ({
+        date: insp.date,
+        description: `JAHRESINSPEKTION DURCHGEFÜHRT: Zustand: ${insp.condition_rating}. ${insp.summary_report}`,
+        type: 'inspection',
+        log_type: 'inspection', // sorgt für das grüne Schild-Icon
+        user_name: 'Techniker', // Oder insp.inspector_name falls vorhanden
+        id: insp.id,
+        is_safe: insp.is_safe,
+        is_public: insp.is_publicly_released
+      }))
+    ];
+
+    // --- SORTIERUNG ---
+    const sortedHistory = combinedHistory.sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
+    setHistory(sortedHistory);
+
+  } catch (err) { 
+    console.error("Fetch Error:", err); 
+  } finally { 
+    setLoading(false); 
+  }
+};
 
   useEffect(() => { if (id) fetchData(); }, [id]);
 
@@ -440,7 +451,7 @@ setHistory(sortedHistory);
           </div>
         </section>
         )}
-        
+
 
         <div className="space-y-6">
           {/* 1. MODUL: USER FEED (REPORTS) */}
@@ -575,61 +586,99 @@ setHistory(sortedHistory);
           </section>
 
           {/* 3. MODUL: HISTORY */}
-          <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm space-y-8">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 border-b pb-6">Wartungshistorie</h3>
-            <div className="space-y-4 border-l-2 border-slate-100 ml-4 pl-8 relative">
-              <section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm">
-                <h3 className="text-[10px] font-black uppercase text-slate-400 border-b pb-4 mb-6 tracking-widest">Wartungshistorie & Audit-Log</h3>
-                <div className="space-y-4 border-l-2 border-slate-100 ml-4 pl-8 relative">
-                  {history.map((log, i) => (
-                    
-                    <div key={i} className="relative mb-8 last:mb-0">
-                      {/* Punkt auf der Timeline: Blau für Status/Log, Orange für Reparatur */}
-                      <div className={`absolute -left-[41px] top-1 w-4 h-4 rounded-full bg-white border-4 shadow-sm ${
-                        log.type === 'repair' ? 'border-orange-500' : 'border-blue-500'
-                      }`}></div>
-                      
-                      <div className="bg-slate-50 border border-slate-50 rounded-3xl p-5 shadow-sm hover:border-slate-200 transition-all">
-                        <div className="flex justify-between items-start mb-2">
-                          <time className="text-[10px] font-black text-slate-400 uppercase">
-                            <time className="text-[10px] font-black text-slate-400 uppercase">
-                              {new Date(log.date).toLocaleString('de-DE', { 
-                                day: '2-digit', 
-                                month: '2-digit', 
-                                year: 'numeric', 
-                                hour: '2-digit', 
-                                minute: '2-digit' 
-                              })} Uhr
-                            </time>
-                          </time>
-                          
-                          {/* Typ-Badge */}
-                          <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase border ${
-                            log.log_type === 'status_change' 
-                              ? 'bg-blue-100 text-blue-600 border-blue-200' 
-                              : 'bg-white text-slate-400 border-slate-200'
-                          }`}>
-                            {log.log_type === 'status_change' ? '📢 Status-Änderung' : '📝 Protokoll'}
-                          </span>
-                        </div>
-                        
-                        <p className="text-sm font-medium text-slate-700 leading-relaxed">{log.description}</p>
-                        
-                        {/* Urheber-Zeile */}
-                        <div className="mt-3 pt-3 border-t border-slate-100/50 flex items-center gap-2">
-                          <div className="w-4 h-4 bg-slate-200 rounded-full flex items-center justify-center text-[8px]">👤</div>
-                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">
-                            Aktion durch: <span className="text-slate-600">{log.user_name || 'System / Unbekannt'}</span>
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </div>
-          </section>
+<section className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm">
+  <h3 className="text-[10px] font-black uppercase text-slate-400 border-b pb-4 mb-8 tracking-[0.2em]">
+    Wartungshistorie & Audit-Log
+  </h3>
 
+  <div className="space-y-2 border-l-2 border-slate-100 ml-4 pl-8 relative">
+    {history.map((log, i) => {
+      // Bestimmung der Typen
+      const isInspection = log.log_type === 'inspection' || log.type === 'inspection';
+      const isStatus = log.log_type === 'status_change';
+      const isRepair = log.type === 'repair' || log.log_type === 'repair';
+
+      // Default-Werte (Protokoll)
+      let dotColor = 'border-blue-500';
+      let badgeClass = 'bg-slate-100 text-slate-400 border-slate-200';
+      let icon = '📝';
+      let typeLabel = 'Protokoll';
+
+      // Logik-Erweiterung für Inspektionen
+      if (isInspection) {
+        dotColor = 'border-emerald-500';
+        badgeClass = 'bg-emerald-50 text-emerald-600 border-emerald-100';
+        icon = '🛡️';
+        typeLabel = 'Jahresinspektion';
+      } else if (isStatus) {
+        dotColor = 'border-blue-500';
+        badgeClass = 'bg-blue-50 text-blue-600 border-blue-100';
+        icon = '📢';
+        typeLabel = 'Status-Update';
+      } else if (isRepair) {
+        dotColor = 'border-orange-500';
+        badgeClass = 'bg-orange-50 text-orange-600 border-orange-100';
+        icon = '🔧';
+        typeLabel = 'Reparatur';
+      }
+
+      return (
+        <div key={i} className="relative mb-8 last:mb-0 group">
+          {/* Punkt auf der Timeline */}
+          <div className={`absolute -left-[41px] top-1 w-4 h-4 rounded-full bg-white border-4 shadow-sm transition-transform group-hover:scale-125 ${dotColor}`}></div>
+          
+          <div className="bg-slate-50/50 border border-slate-100 rounded-[2rem] p-6 transition-all hover:bg-white hover:shadow-md hover:border-slate-200">
+            <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
+              <time className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">
+                {new Date(log.date).toLocaleString('de-DE', { 
+                  day: '2-digit', month: '2-digit', year: 'numeric', 
+                  hour: '2-digit', minute: '2-digit' 
+                })} Uhr
+              </time>
+              
+              <div className="flex gap-2">
+                 {/* Spezial-Badge für Sicherheitsstatus bei Inspektionen */}
+                 {isInspection && (
+                   <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase border ${log.is_safe ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-red-500 text-white border-red-600'}`}>
+                     {log.is_safe ? 'Sicher' : 'Mangelhaft'}
+                   </span>
+                 )}
+                 
+                 <span className={`text-[8px] font-black px-2.5 py-1 rounded-full uppercase border ${badgeClass} flex items-center gap-1.5`}>
+                   <span>{icon}</span>
+                   {typeLabel}
+                 </span>
+              </div>
+            </div>
+            
+            <p className="text-sm font-semibold text-slate-700 leading-relaxed mb-4">
+              {log.description}
+            </p>
+            
+            <div className="flex justify-between items-center pt-3 border-t border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 bg-slate-200 rounded-full flex items-center justify-center text-[10px] grayscale">👤</div>
+                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">
+                  Aktion durch: <span className="text-slate-600 font-black">{log.user_name || 'Techniker'}</span>
+                </p>
+              </div>
+
+              {/* PDF Button für Inspektionen */}
+              {isInspection && (
+                <button 
+                  onClick={() => alert("PDF-Generierung wird gestartet...")}
+                  className="text-[9px] font-black uppercase text-emerald-600 hover:text-emerald-700 transition-colors flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100"
+                >
+                  📄 Bericht öffnen
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    })}
+  </div>
+</section>
 
 
         </div>

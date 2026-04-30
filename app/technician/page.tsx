@@ -29,49 +29,84 @@ export default function GlobalTechnicianPage() {
   const [repairImages, setRepairImages] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+const fetchData = async () => {
+  setLoading(true);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
 
-      const { data: openData } = await supabase
-        .from('defects')
-        .select(`*, ferratas!defects_ferrata_id_fkey ( name )`)
-        .eq('resolved', false);
+    // 1. Offene Mängel laden (unverändert)
+    const { data: openData } = await supabase
+      .from('defects')
+      .select(`*, ferratas!defects_ferrata_id_fkey ( name )`)
+      .eq('resolved', false);
 
-      const { data: historyData } = await supabase
-        .from('defects')
-        .select(`*, ferratas!defects_ferrata_id_fkey ( name )`)
-        .eq('resolved', true)
-        .eq('resolved_by', user.id)
-        .order('resolved_at', { ascending: false });
+    // 2. Erledigte Reparaturen laden (unverändert)
+    const { data: historyData } = await supabase
+      .from('defects')
+      .select(`*, ferratas!defects_ferrata_id_fkey ( name )`)
+      .eq('resolved', true)
+      .eq('resolved_by', user.id)
+      .order('resolved_at', { ascending: false });
 
-      if (openData) {
-        const groups = openData.reduce((acc: any, defect: any) => {
-          const ferrataName = defect.ferratas?.name || "Unbekannte Anlage";
-          if (!acc[ferrataName]) acc[ferrataName] = [];
-          acc[ferrataName].push(defect);
-          return acc;
-        }, {});
-        setGroupedDefects(groups);
-      }
+    // 3. NEU: Inspektionen laden
+    // Wir nehmen an, dass in 'inspections' ein Feld 'inspector_id' oder 'created_by' existiert
+    // Falls die Spalte anders heißt, bitte anpassen (z.B. user_id)
+    const { data: inspectionData } = await supabase
+      .from('inspections')
+      .select(`*, ferratas ( name )`)
+      .order('date', { ascending: false }); 
+      // Optional: .eq('inspector_id', user.id) falls nur eigene gewünscht
 
-      if (historyData) {
-        const hGroups = historyData.reduce((acc: any, defect: any) => {
-          const ferrataName = defect.ferratas?.name || "Unbekannte Anlage";
-          if (!acc[ferrataName]) acc[ferrataName] = [];
-          acc[ferrataName].push(defect);
-          return acc;
-        }, {});
-        setHistoryGroups(hGroups);
-      }
-    } catch (err: any) {
-      console.error("Fetch Error:", err);
-    } finally {
-      setLoading(false);
+    // --- Verarbeitung Offene Mängel ---
+    if (openData) {
+      const groups = openData.reduce((acc: any, defect: any) => {
+        const ferrataName = defect.ferratas?.name || "Unbekannte Anlage";
+        if (!acc[ferrataName]) acc[ferrataName] = [];
+        acc[ferrataName].push(defect);
+        return acc;
+      }, {});
+      setGroupedDefects(groups);
     }
-  };
+
+    // --- Verarbeitung Historie (Reparaturen + Inspektionen) ---
+    // Wir führen hier beide Datenquellen zusammen
+    const combinedHistory = [
+      ...(historyData || []).map(d => ({ 
+        ...d, 
+        log_type: 'repair', 
+        sort_date: d.resolved_at 
+      })),
+      ...(inspectionData || []).map(i => ({ 
+        ...i, 
+        log_type: 'inspection', 
+        sort_date: i.date,
+        title: 'Jahresinspektion', // Inspektionen haben oft keinen Titel-String in der DB
+        resolved_at: i.date // Damit das Datum in deiner Liste angezeigt wird
+      }))
+    ];
+
+    // Sortieren nach Datum (Absteigend)
+    combinedHistory.sort((a, b) => new Date(b.sort_date).getTime() - new Date(a.sort_date).getTime());
+
+    if (combinedHistory.length > 0) {
+      const hGroups = combinedHistory.reduce((acc: any, item: any) => {
+        const ferrataName = item.ferratas?.name || "Unbekannte Anlage";
+        if (!acc[ferrataName]) acc[ferrataName] = [];
+        acc[ferrataName].push(item);
+        return acc;
+      }, {});
+      setHistoryGroups(hGroups);
+    } else {
+      setHistoryGroups({});
+    }
+
+  } catch (err: any) {
+    console.error("Fetch Error:", err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     if (!authLoading) {
@@ -183,57 +218,62 @@ export default function GlobalTechnicianPage() {
               <div key={name} className="space-y-3">
                 <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest ml-4">{name}</p>
                 <div className="grid gap-2">
-                  {defects.map(d => {
-                    const isSelected = selectedRepairs.includes(d.id);
-                    
-                    return (
-                      <div 
-                        key={d.id} 
-                        onClick={() => setViewingHistoryDefect(d)}
-                        className={`bg-white border rounded-2xl p-4 flex items-center gap-4 cursor-pointer transition-all group ${
-                          isSelected ? 'border-blue-500 shadow-md shadow-blue-50' : 'border-slate-100 hover:border-blue-300'
-                        }`}
-                      >
-                        {/* CHECKBOX LOGIK */}
-                        <div 
-                          onClick={(e) => {
-                            e.stopPropagation(); // Verhindert das Öffnen der Lightbox beim Klick auf die Checkbox
-                            if (isSelected) {
-                              setSelectedRepairs(selectedRepairs.filter(id => id !== d.id));
-                            } else {
-                              setSelectedRepairs([...selectedRepairs, d.id]);
-                            }
-                          }}
-                          className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
-                            isSelected 
-                              ? 'bg-blue-600 border-blue-600' 
-                              : 'bg-white border-slate-200 group-hover:border-blue-400'
-                          }`}
-                        >
-                          {isSelected && (
-                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
+{defects.map(d => {
+  const isSelected = selectedRepairs.includes(d.id);
+  const isInspection = d.log_type === 'inspection'; // Unterscheidung
+  
+  return (
+    <div 
+      key={d.id} 
+      onClick={() => setViewingHistoryDefect(d)}
+      className={`bg-white border rounded-2xl p-4 flex items-center gap-4 cursor-pointer transition-all group ${
+        isSelected ? 'border-blue-500 shadow-md shadow-blue-50' : 'border-slate-100 hover:border-blue-300'
+      }`}
+    >
+      {/* CHECKBOX (Nur bei Mängeln sinnvoll, bei Inspektionen evtl. ausblenden) */}
+      {!isInspection && (
+        <div 
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isSelected) {
+              setSelectedRepairs(selectedRepairs.filter(id => id !== d.id));
+            } else {
+              setSelectedRepairs([...selectedRepairs, d.id]);
+            }
+          }}
+          className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
+            isSelected ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-200 group-hover:border-blue-400'
+          }`}
+        >
+          {isSelected && (
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </div>
+      )}
 
-                        <div className={`w-1 h-8 rounded-full ${isSelected ? 'bg-blue-600' : 'bg-emerald-400'}`} />
-                        
-                        <div className="flex-1">
-                          <p className="text-[9px] font-bold text-slate-400">
-                            {new Date(d.resolved_at).toLocaleDateString('de-DE')} — {d.repair_time}
-                          </p>
-                          <h4 className={`text-xs font-bold ${isSelected ? 'text-blue-900' : 'text-slate-600'}`}>
-                            {d.title}
-                          </h4>
-                        </div>
-                        
-                        <span className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-black uppercase tracking-tighter">
-                          Details 📄
-                        </span>
-                      </div>
-                    );
-                  })}
+      {/* FARBLICHER INDIKATOR: Orange für Reparatur, Blau/Grün für Inspektion */}
+      <div className={`w-1 h-8 rounded-full ${isInspection ? 'bg-emerald-500' : (isSelected ? 'bg-blue-600' : 'bg-orange-400')}`} />
+      
+      <div className="flex-1">
+        <p className="text-[9px] font-bold text-slate-400 uppercase">
+          {isInspection ? '🛡️ Sicherheits-Check' : '🔧 Reparatur abgeschlossen'}
+        </p>
+        <p className="text-[9px] font-medium text-slate-400">
+          {new Date(d.date_for_sort).toLocaleDateString('de-DE')} {d.repair_time ? `— ${d.repair_time}` : ''}
+        </p>
+        <h4 className={`text-xs font-bold ${isInspection ? 'text-emerald-900' : (isSelected ? 'text-blue-900' : 'text-slate-600')}`}>
+          {d.title}
+        </h4>
+      </div>
+      
+      <span className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-black uppercase tracking-tighter">
+        Bericht 📄
+      </span>
+    </div>
+  );
+})}
                 </div>
               </div>
             ))
