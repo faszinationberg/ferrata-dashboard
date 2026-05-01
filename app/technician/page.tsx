@@ -220,8 +220,15 @@ const fetchData = async () => {
                 <div className="grid gap-2">
 {defects.map(d => {
   const isSelected = selectedRepairs.includes(d.id);
-  const isInspection = d.log_type === 'inspection'; // Unterscheidung
+  const isInspection = d.log_type === 'inspection';
   
+  // DATUMS-FIX: 
+  // Wir prüfen nacheinander: 
+  // 1. sort_date (unser virtuelles Feld aus fetchData)
+  // 2. resolved_at (von Reparaturen)
+  // 3. date (von Inspektionen)
+  const displayDate = d.sort_date || d.resolved_at || d.date;
+
   return (
     <div 
       key={d.id} 
@@ -230,7 +237,6 @@ const fetchData = async () => {
         isSelected ? 'border-blue-500 shadow-md shadow-blue-50' : 'border-slate-100 hover:border-blue-300'
       }`}
     >
-      {/* CHECKBOX (Nur bei Mängeln sinnvoll, bei Inspektionen evtl. ausblenden) */}
       {!isInspection && (
         <div 
           onClick={(e) => {
@@ -253,16 +259,18 @@ const fetchData = async () => {
         </div>
       )}
 
-      {/* FARBLICHER INDIKATOR: Orange für Reparatur, Blau/Grün für Inspektion */}
       <div className={`w-1 h-8 rounded-full ${isInspection ? 'bg-emerald-500' : (isSelected ? 'bg-blue-600' : 'bg-orange-400')}`} />
       
       <div className="flex-1">
         <p className="text-[9px] font-bold text-slate-400 uppercase">
           {isInspection ? '🛡️ Sicherheits-Check' : '🔧 Reparatur abgeschlossen'}
         </p>
+        
+        {/* KORRIGIERTE ZEILE */}
         <p className="text-[9px] font-medium text-slate-400">
-          {new Date(d.date_for_sort).toLocaleDateString('de-DE')} {d.repair_time ? `— ${d.repair_time}` : ''}
+          {displayDate ? new Date(displayDate).toLocaleDateString('de-DE') : 'Kein Datum'} {d.repair_time ? `— ${d.repair_time}` : ''}
         </p>
+        
         <h4 className={`text-xs font-bold ${isInspection ? 'text-emerald-900' : (isSelected ? 'text-blue-900' : 'text-slate-600')}`}>
           {d.title}
         </h4>

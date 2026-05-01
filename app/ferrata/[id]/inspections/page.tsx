@@ -74,6 +74,9 @@ export default function InspectionDashboard() {
   };
 
   const handleFinalize = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Nicht authentifiziert");
+
     if (!summaryReport.trim()) {
       alert("Bitte schreibe ein kurzes Fazit im Berichtstext.");
       return;
@@ -84,6 +87,7 @@ export default function InspectionDashboard() {
         .from('inspections')
         .insert([{
           ferrata_id: ferrataId,
+          technician_id: user.id, // <--- Die ID für die RLS-Policy
           date: new Date().toISOString(),
           check_anchors: checks.anchors,
           check_cable: checks.cable,
