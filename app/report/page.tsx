@@ -88,7 +88,7 @@ export default function PublicReportSearch() {
               placeholder="Klettersteig suchen..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white border border-slate-200 rounded-[2rem] py-6 pl-16 pr-8 shadow-xl shadow-slate-200/20 outline-none focus:border-blue-500 transition-all text-base"
+              className="w-full bg-white border border-slate-200 rounded-2xl py-6 pl-16 pr-8 shadow-xl shadow-slate-200/20 outline-none focus:border-blue-500 transition-all text-base"
             />
           </div>
 

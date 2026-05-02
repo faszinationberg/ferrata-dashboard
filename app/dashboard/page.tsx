@@ -279,7 +279,7 @@ useEffect(() => {
               placeholder="Klettersteig oder Region suchen..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white border border-slate-200/60 rounded-[2rem] py-6 pl-16 pr-8 shadow-xl shadow-slate-200/20 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 transition-all text-base font-medium placeholder:text-slate-300"
+              className="w-full bg-white border border-slate-200/60 rounded-2xlpy-6 pl-16 pr-8 shadow-xl shadow-slate-200/20 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 transition-all text-base font-medium placeholder:text-slate-300"
             />
           </div>
 

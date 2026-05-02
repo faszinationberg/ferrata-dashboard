@@ -20,37 +20,43 @@ export function CloudStatusBadge() {
     }
   };
 
-  if (loading) return <div className="h-10 w-32 bg-slate-50 animate-pulse rounded-full" />;
+  if (loading) return <div className="h-10 w-20 md:w-32 bg-slate-50 animate-pulse rounded-full" />;
 
   return (
     <div className="relative">
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-3 px-4 py-2 bg-white border border-slate-100 rounded-full shadow-sm hover:border-blue-200 transition-all active:scale-[0.98] group"
+        className="flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2 bg-white border border-slate-100 rounded-full shadow-sm hover:border-blue-200 transition-all active:scale-[0.98] group"
       >
         <div className="flex flex-col leading-none text-left">
-          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-            {userRole ? userRole : 'Rolle laden...'}
+          {/* ROLLE: Nur ab Tablet (sm) sichtbar */}
+          <span className="hidden sm:block text-[9px] font-black text-slate-400 uppercase tracking-widest">
+            {userRole ? userRole : 'Rolle...'}
           </span>
-          <span className="text-[10px] font-bold text-slate-700">
-            {/* ANZEIGE: Volle Email-Adresse falls kein Name vorhanden ist */}
-            {userProfile?.full_name ? userProfile.full_name : (userEmail ? userEmail : 'Gast')}
+          {/* NAME: Wird auf Mobile bei zu langen Namen abgekürzt */}
+          <span className="text-[10px] font-bold text-slate-700 max-w-[80px] md:max-w-none truncate">
+            {userProfile?.full_name ? userProfile.full_name : (userEmail ? userEmail.split('@')[0] : 'Gast')}
           </span>
         </div>
 
-        <div className="h-4 w-[1px] bg-slate-100 mx-1"></div>
+        {/* TRENNER: Nur ab Tablet sichtbar */}
+        <div className="hidden sm:block h-4 w-[1px] bg-slate-100 mx-1"></div>
         
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+          {/* TEXT CLOUD LIVE: Nur ab Desktop (md) sichtbar */}
+          <span className="hidden md:block text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
             Cloud Live
           </span>
-          <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${userRole === 'developer' ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+          {/* STATUS PUNKT: Immer sichtbar */}
+          <span className={`w-1.5 h-1.5 rounded-full animate-pulse flex-shrink-0 ${userRole === 'developer' ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+          {/* PFEIL: Immer sichtbar */}
           <span className={`text-[8px] text-slate-300 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
             ▼
           </span>
         </div>
       </button>
 
+      {/* DROPDOWN MENU */}
       {isOpen && (
         <>
           <div className="fixed inset-0 z-[100]" onClick={() => setIsOpen(false)} />
@@ -58,6 +64,8 @@ export function CloudStatusBadge() {
             <div className="px-4 py-2 border-b border-slate-50 mb-1">
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Angemeldet als</p>
               <p className="text-[10px] font-medium text-slate-500 truncate">{userEmail}</p>
+              {/* Auf Mobile zeigen wir die Rolle hier im Menü an, da sie im Badge fehlt */}
+              <p className="sm:hidden text-[8px] font-bold text-blue-600 uppercase mt-1">{userRole}</p>
             </div>
 
             <button 

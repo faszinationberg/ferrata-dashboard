@@ -573,7 +573,7 @@ const removeImage = (index: number) => {
               </div>
 
               {/* NAME */}
-              <div className="min-h-[40px]">
+              <div className="min-h-[40px] min-w-0">
                 {isHeaderEdit ? (
                   <EditableField 
                     value={ferrata.name} 
@@ -625,10 +625,10 @@ const removeImage = (index: number) => {
                 color="bg-slate-50 border border-slate-100 text-slate-800" 
               />
               <FerrataStatusBadge 
-                            ferrataId={id} 
-                            initialStatus={ferrata?.status} 
-                            onUpdate={fetchData} // Damit die Wartungshistorie sofort den neuen Log zeigt
-                          />
+                ferrataId={id} 
+                initialStatus={ferrata?.status} 
+                onUpdate={fetchData} // Damit die Wartungshistorie sofort den neuen Log zeigt
+                />
             </div>
           </div>
 
