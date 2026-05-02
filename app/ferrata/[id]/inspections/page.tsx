@@ -4,6 +4,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { createClient } from '../../../../lib/supabase';
 import { CloudStatusBadge } from '../../../components/CloudStatusBadge';
+import { DefectReportForm } from '../../../components/InternaDefectReport';
 import { useImageManager } from '../../../hooks/useImageManager'; 
 import { ImageManager } from '../../../components/ImageManager';
 import { priorityStyles, PriorityType } from '../../../../lib/priorityConfig';
@@ -24,10 +25,12 @@ export default function InspectionDashboard() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const [checks, setChecks] = useState({ anchors: false, cable: false, loadTest: false, corrosion: false, looseRock: false });
+  const [checks, setChecks] = useState({ anchors: false, cable: false, loadTest: false, corrosion: false, looseRock: false , normCheck: false });
   const [summaryReport, setSummaryReport] = useState('');
   const [isSafe, setIsSafe] = useState(true);
   const [isReleased, setIsReleased] = useState(true);
+
+  const [isDefectModalOpen, setIsDefectModalOpen] = useState(false);
 
   const loadInspectionData = async () => {
     if (!ferrataId) return;
@@ -39,11 +42,37 @@ export default function InspectionDashboard() {
     setLoading(false);
   };
 
-  useEffect(() => {
-    loadInspectionData();
-    const interval = setInterval(loadInspectionData, 10000);
-    return () => clearInterval(interval);
-  }, [ferrataId]);
+
+// 1. Zuerst die States definieren (ganz oben bei den anderen States)
+const [ferrataName, setFerrataName] = useState<string>('');
+const [topoUrl, setTopoUrl] = useState<string | null>(null);
+
+// 2. Der korrigierte useEffect
+useEffect(() => {
+  // Daten sofort laden
+  loadInspectionData();
+
+  // Basis-Daten (Name & Topo) laden
+  const fetchBaseData = async () => {
+    const { data } = await supabase
+      .from('ferratas')
+      .select('name, topo_url')
+      .eq('id', ferrataId)
+      .single();
+    if (data) {
+      setFerrataName(data.name);
+      setTopoUrl(data.topo_url);
+    }
+  };
+  fetchBaseData();
+
+  // Intervall für Live-Updates der Mängel
+  const interval = setInterval(loadInspectionData, 10000);
+
+  // Cleanup: Intervall löschen, wenn Komponente verlassen wird
+  return () => clearInterval(interval);
+}, [ferrataId]);
+
 
   const handleRemoveExistingImage = (url: string) => {
     setEditingDefect({ ...editingDefect, image_urls: editingDefect.image_urls.filter((u: string) => u !== url) });
@@ -56,22 +85,27 @@ export default function InspectionDashboard() {
       const uploadedUrls = await uploadImages('insp_edit');
       const finalUrls = [...(editingDefect.image_urls || []), ...uploadedUrls];
       const { error } = await supabase.from('defects').update({
-        title: editingDefect.title,
-        description: editingDefect.description,
-        priority: editingDefect.priority,
-        location: editingDefect.location,
-        image_urls: finalUrls
-      }).eq('id', editingDefect.id);
-      if (error) throw error;
-      await loadInspectionData();
-      setEditingDefect(null);
-      clearNewFiles();
-    } catch (e: any) {
-      alert("Fehler: " + e.message);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
+            title: editingDefect.title,
+            description: editingDefect.description,
+            priority: editingDefect.priority,
+            location: editingDefect.location,
+            image_urls: finalUrls
+          }).eq('id', editingDefect.id);
+
+          if (error) throw error;
+
+          // --- NEU: Markiere den Mangel als "Heute kontrolliert" ---
+          setInspectedDefects(prev => ({ ...prev, [editingDefect.id]: 'still_open' }));
+
+          await loadInspectionData();
+          setEditingDefect(null);
+          clearNewFiles();
+        } catch (e: any) {
+          alert("Fehler: " + e.message);
+        } finally {
+          setIsUpdating(false);
+        }
+      };
 
   const handleFinalize = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -93,6 +127,8 @@ export default function InspectionDashboard() {
           check_cable: checks.cable,
           check_rock: checks.looseRock,
           check_load_test: checks.loadTest,
+          check_corrosion: checks.corrosion, // Sicherstellen, dass das auch drin ist
+          check_norm: checks.normCheck,     // NEU: Mapping auf die DB-Spalte          
           summary_report: summaryReport,
           condition_rating: isSafe ? 'Gut / Sicher' : 'Mangelhaft',
           is_safe: isSafe,
@@ -143,7 +179,7 @@ export default function InspectionDashboard() {
             Inspektion
             </h1>
             <p className="text-[10px] font-black uppercase text-blue-600 tracking-[0.2em] mt-4">
-            WARTUNGS-DASHBOARD
+            {ferrataName}
             </p>
         </div>
                 
@@ -154,81 +190,251 @@ export default function InspectionDashboard() {
     </header>
 
     {/* --- CONTENT BEREICH --- */}
-    <div className="max-w-2xl mx-auto p-4 md:p-8 pt-0 space-y-6">
-        <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
-            <span className="w-2 h-2 bg-orange-500 rounded-full"></span> Offene Punkte aus Vorperioden
-          </h3>
-          {openDefects.length === 0 ? (
-            <p className="text-xs text-slate-400 italic p-4 text-center">Keine Altschäden vorhanden.</p>
-          ) : (
-            <div className="space-y-3">
-              {openDefects.map(d => {
+    <div className="max-w-2xl mx-auto p-4 md:p-8 pt-0 space-y-10">
+      
+      {/* BOX 1: NOCH ZU PRÜFEN (Die ToDo-Liste mit der detaillierten Anzeige) */}
+      <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
+          <span className="w-2 h-2 bg-orange-500 rounded-full"></span> Noch zu kontrollieren (ToDo)
+        </h3>
+        
+        {openDefects.filter(d => !inspectedDefects[d.id]).length === 0 ? (
+          <div className="p-10 bg-emerald-50 border border-emerald-100 rounded-[2rem] text-center">
+            <span className="text-2xl mb-2 block">✅</span>
+            <p className="text-xs text-emerald-800 font-black uppercase tracking-widest">
+              Alle Altschäden wurden für heute gesichtet
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {[...openDefects]
+              .filter(d => !inspectedDefects[d.id])
+              .sort((a, b) => (parseFloat(a.altitude) || 0) - (parseFloat(b.altitude) || 0))
+              .map(d => {
                 const pStyle = priorityStyles[d.priority as PriorityType] || priorityStyles.niedrig;
+                const typeIcons: Record<string, string> = { Anchor: '🔩', Cable: '🪢', Rock: '🪨', Other: '❓' };
+
                 return (
-                  <div key={d.id} className="bg-slate-50 rounded-2xl p-4 flex flex-col border border-slate-100 shadow-sm">
-                    <div className="flex justify-between items-start mb-3 cursor-pointer" onClick={() => setEditingDefect(d)}>
-                      <div className="flex-1">
-                        <p className="text-xs font-bold text-slate-800 flex items-center gap-2">
-                          {d.title || d.type} <span className="text-[10px] text-blue-500 font-normal">✎</span>
+                  <div 
+                    key={d.id} 
+                    onClick={() => setEditingDefect(d)}
+                    className="bg-slate-50 hover:bg-white border border-slate-100 hover:border-blue-200 rounded-2xl p-5 flex items-center gap-5 transition-all cursor-pointer group shadow-sm"
+                  >
+                    {/* Farb-Indikator links */}
+                    <div className={`w-1.5 h-12 rounded-full flex-shrink-0 ${pStyle.bg}`}></div>
+
+                    <div className="flex-1 min-w-0">
+                      {/* Zeile 1: Titel & Typ */}
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs">{typeIcons[d.type] || '⚠️'}</span>
+                        <p className="text-xs font-black text-slate-900 uppercase tracking-tight truncate">
+                          {d.title || d.type}
                         </p>
-                        <p className="text-[10px] text-slate-500 italic">"{d.description}"</p>
                       </div>
+
+                      {/* Zeile 2: Ort & Höhe (Blau für schnelle Orientierung) */}
+                      <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wide">
+                        📍 {d.location || 'Ort unbekannt'} 
+                        <span className="mx-1 text-slate-300">•</span> 
+                        🏔️ {d.altitude ? `${d.altitude}m` : 'Höhe N/A'}
+                      </p>
+
+                      {/* Zeile 3: Beschreibung (Kursiv) */}
+                      <p className="text-[11px] text-slate-500 italic mt-1 line-clamp-1">
+                        "{d.description}"
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-2">
                       <span className={`text-[8px] font-black px-2 py-1 rounded uppercase border ${pStyle.badge}`}>
                         {d.priority}
                       </span>
-                    </div>
-                    <div className="flex gap-2 pt-3 border-t border-slate-200/60">
-                      <button onClick={() => setInspectedDefects({...inspectedDefects, [d.id]: 'resolved'})} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase border transition-all ${inspectedDefects[d.id] === 'resolved' ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-400 border-slate-200'}`}>Behoben</button>
-                      <button onClick={() => setInspectedDefects({...inspectedDefects, [d.id]: 'still_open'})} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase border transition-all ${inspectedDefects[d.id] === 'still_open' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-slate-400 border-slate-200'}`}>Offen</button>
+                      <span className="text-blue-500 text-[10px] font-black uppercase opacity-0 group-hover:opacity-100 transition-opacity">
+                        Prüfen ✎
+                      </span>
                     </div>
                   </div>
                 );
               })}
-            </div>
-          )}
-        </section>
-
-        <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm border-l-4 border-l-blue-500">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Heute neu erfasst</h3>
-            <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded text-[10px] font-bold">{newDefects.length}</span>
           </div>
-          {newDefects.map(d => (
-            <div key={d.id} onClick={() => setEditingDefect(d)} className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:bg-blue-100 transition-all mb-2">
-              <div>
-                <p className="text-xs font-black text-blue-900">{d.title || d.type} <span className="text-[9px] font-normal opacity-50 ml-1">✎</span></p>
-                <p className="text-[9px] text-blue-600 font-bold uppercase">{d.location}</p>
+        )}
+      </section>
+
+      {/* BOX 2: ZUSAMMENFASSUNG (Audit-Liste) */}
+      <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm border-l-4 border-l-blue-600">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            In den heutigen Bericht übernommen
+          </h3>
+          <span className="bg-blue-600 text-white px-3 py-1 rounded-full text-[10px] font-black">
+            {Object.keys(inspectedDefects).length + newDefects.length} Einträge
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          {/* A) Bestätigte Altschäden (Kompakte Darstellung) */}
+          {openDefects.filter(d => inspectedDefects[d.id]).map(d => (
+            <div key={d.id} onClick={() => setEditingDefect(d)} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-blue-300 transition-all border-l-4 border-l-emerald-500 shadow-sm">
+              <div className="flex-1 min-w-0 pr-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-[8px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Sichtprüfung OK</span>
+                  <p className="text-xs font-black text-slate-800 truncate">{d.title || d.type}</p>
+                </div>
+                <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">📍 {d.location} ({d.altitude}m)</p>
               </div>
-              {d.image_urls?.[0] ? <img src={d.image_urls[0]} className="w-8 h-8 rounded-lg object-cover" /> : <span className="text-xs">📸</span>}
+              <div className="text-emerald-500 font-black">✓</div>
             </div>
           ))}
-        </section>
 
-        {/* ... Prüfschritte & Fazit (unverändert) ... */}
-        <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Standard-Prüfschritte</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {[{ id: 'anchors', label: 'Ankerprüfung' }, { id: 'cable', label: 'Drahtseilprüfung' }, { id: 'loadTest', label: 'Belastungstest' }, { id: 'corrosion', label: 'Korrosions-Check' }, { id: 'looseRock', label: 'Felsräumung' }].map(item => (
-              <label key={item.id} className={`flex items-center gap-3 p-4 rounded-2xl border transition-all cursor-pointer ${checks[item.id as keyof typeof checks] ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-slate-100 text-slate-500'}`}>
-                <input type="checkbox" checked={checks[item.id as keyof typeof checks]} onChange={() => setChecks({...checks, [item.id]: !checks[item.id as keyof typeof checks]})} className="w-5 h-5 accent-emerald-600" />
-                <span className="text-xs font-bold">{item.label}</span>
-              </label>
-            ))}
+          {/* B) Neue Mängel (Blaues Design) */}
+          {newDefects.map(d => (
+            <div key={d.id} onClick={() => setEditingDefect(d)} className="bg-blue-50/30 border border-blue-100 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:bg-blue-100 transition-all shadow-sm">
+              <div className="flex-1 min-w-0 pr-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-[8px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Neuaufnahme</span>
+                  <p className="text-xs font-black text-blue-900 truncate">{d.title || d.type}</p>
+                </div>
+                <p className="text-[9px] text-blue-600 font-bold uppercase mt-1">📍 {d.location} ({d.altitude}m)</p>
+              </div>
+              {d.image_urls?.[0] ? <img src={d.image_urls[0]} className="w-10 h-10 rounded-xl object-cover border border-blue-100" /> : <span className="text-xs">📸</span>}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-6 border-b pb-4">
+            Standard-Prüfschritte & Norm-Check
+          </h3>
+          
+          <div className="flex flex-col gap-3">
+            {[
+              { id: 'anchors', label: 'Sichtprüfung aller Teile', desc: 'Endanker, Mittelanker, Trittbügel, Leitern' },
+              { id: 'cable', label: 'Sichtprüfung Drahtseil', desc: 'Kontrolle auf Drahtbrüche & Verformungen' },
+              { id: 'loadTest', label: 'Belastungsprüfung aller Anker', desc: 'Verkehrslast (1 Person) erfolgreich geprüft' },
+              { id: 'corrosion', label: 'Korrosions-Check', desc: 'Stichprobenartige Kontrolle der Seilklemmen' },
+              { id: 'looseRock', label: 'Felsräumung durchgeführt', desc: 'Kein loses Gestein im unmittelbaren Bereich' },
+              { id: 'normCheck', label: 'Normkonformität EN/UNI 16869:2018', desc: 'Bauweise entspricht der aktuellen Norm' }
+            ].map(item => {
+              const isChecked = checks[item.id as keyof typeof checks];
+              
+              return (
+                <label 
+                  key={item.id} 
+                  className={`flex items-start gap-4 p-5 rounded-2xl border transition-all cursor-pointer group ${
+                    isChecked 
+                      ? 'bg-emerald-50 border-emerald-200 shadow-sm' 
+                      : 'bg-slate-50/50 border-slate-100 hover:border-blue-200'
+                  }`}
+                >
+                  {/* Custom Styled Checkbox Container */}
+                  <div className="relative flex items-center mt-1">
+                    <input 
+                      type="checkbox" 
+                      checked={isChecked} 
+                      onChange={() => setChecks({...checks, [item.id]: !isChecked})} 
+                      className="peer h-6 w-6 cursor-pointer appearance-none rounded-lg border-2 border-slate-200 bg-white transition-all checked:border-emerald-500 checked:bg-emerald-500 shadow-sm"
+                    />
+                    {/* Das Häkchen-Icon (SVG) erscheint nur wenn checked */}
+                    <svg className="absolute h-4 w-4 text-white opacity-0 peer-checked:opacity-100 pointer-events-none left-1 transition-opacity" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  </div>
+
+                  <div className="flex flex-col">
+                    <span className={`text-xs font-black uppercase tracking-tight transition-colors ${isChecked ? 'text-emerald-900' : 'text-slate-700'}`}>
+                      {item.label}
+                    </span>
+                    <p className={`text-[10px] leading-relaxed transition-colors ${isChecked ? 'text-emerald-600/70' : 'text-slate-400'}`}>
+                      {item.desc}
+                    </p>
+                  </div>
+                </label>
+              );
+            })}
           </div>
-        </section>
+      </section>
 
-        <section className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fazit & Protokoll</h3>
-          <textarea value={summaryReport} onChange={(e) => setSummaryReport(e.target.value)} className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm min-h-[120px] focus:bg-white transition-all outline-none" placeholder="Gesamteindruck des Klettersteigs beschreiben..." />
-          <div className="grid grid-cols-2 gap-4">
-            <button onClick={() => setIsSafe(!isSafe)} className={`py-4 rounded-2xl text-[9px] font-black uppercase border transition-all ${isSafe ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-red-500 text-white border-red-500'}`}>{isSafe ? 'Sicher' : 'Gefährdet'}</button>
-            <button onClick={() => setIsReleased(!isReleased)} className={`py-4 rounded-2xl text-[9px] font-black uppercase border transition-all ${isReleased ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-900 text-white border-slate-900'}`}>{isReleased ? 'Freigegeben' : 'Gesperrt'}</button>
-          </div>
-        </section>
+      <section className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm space-y-6">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 border-b pb-4">
+          Abschlussbericht & Freigabe
+        </h3>
+        
+        <div className="space-y-4">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">
+            Gesamteindruck & Bemerkungen
+          </label>
+          <textarea 
+            value={summaryReport} 
+            onChange={(e) => setSummaryReport(e.target.value)} 
+            className="w-full bg-slate-50 border border-slate-100 rounded-[2rem] p-6 text-sm min-h-[150px] focus:bg-white focus:border-blue-500 transition-all outline-none shadow-inner" 
+            placeholder="Beschreibe hier den Gesamtzustand, besondere Vorkommnisse oder Empfehlungen für die nächste Wartung..." 
+          />
+        </div>
 
-        <button onClick={handleFinalize} disabled={isSaving || loading} className={`w-full py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all active:scale-95 ${isSaving ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-100'}`}>{isSaving ? "Wird gespeichert..." : "Inspektion finalisieren"}</button>
-      </div>
+        <div className="flex flex-col gap-3 pt-2">
+          {/* CHECKBOX: SICHERHEIT */}
+          <label 
+            className={`flex items-center gap-4 p-5 rounded-3xl border transition-all cursor-pointer ${
+              isSafe 
+                ? 'bg-emerald-50 border-emerald-200 shadow-sm' 
+                : 'bg-slate-50/50 border-slate-100 hover:border-red-200'
+            }`}
+          >
+            <div className="relative flex items-center">
+              <input 
+                type="checkbox" 
+                checked={isSafe} 
+                onChange={() => setIsSafe(!isSafe)} 
+                className="peer h-6 w-6 cursor-pointer appearance-none rounded-lg border-2 border-slate-200 bg-white transition-all checked:border-emerald-500 checked:bg-emerald-500"
+              />
+              <svg className="absolute h-4 w-4 text-white opacity-0 peer-checked:opacity-100 pointer-events-none left-1 transition-opacity" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </div>
+            <div className="flex flex-col">
+              <span className={`text-xs font-black uppercase tracking-tight ${isSafe ? 'text-emerald-900' : 'text-slate-700'}`}>
+                Klettersteig ist betriebssicher
+              </span>
+              <p className="text-[10px] text-slate-400">Alle sicherheitsrelevanten Bauteile wurden ohne kritische Mängel geprüft.</p>
+            </div>
+          </label>
+
+          {/* CHECKBOX: FREIGABE */}
+          <label 
+            className={`flex items-center gap-4 p-5 rounded-3xl border transition-all cursor-pointer ${
+              isReleased 
+                ? 'bg-blue-50 border-blue-200 shadow-sm' 
+                : 'bg-slate-50/50 border-slate-100 hover:border-slate-900'
+            }`}
+          >
+            <div className="relative flex items-center">
+              <input 
+                type="checkbox" 
+                checked={isReleased} 
+                onChange={() => setIsReleased(!isReleased)} 
+                className="peer h-6 w-6 cursor-pointer appearance-none rounded-lg border-2 border-slate-200 bg-white transition-all checked:border-blue-600 checked:bg-blue-600"
+              />
+              <svg className="absolute h-4 w-4 text-white opacity-0 peer-checked:opacity-100 pointer-events-none left-1 transition-opacity" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </div>
+            <div className="flex flex-col">
+              <span className={`text-xs font-black uppercase tracking-tight ${isReleased ? 'text-blue-900' : 'text-slate-700'}`}>
+                Für die öffentliche Nutzung freigegeben
+              </span>
+              <p className="text-[10px] text-slate-400">Der Steig wird offiziell für den Publikumsverkehr geöffnet.</p>
+            </div>
+          </label>
+        </div>
+      </section>
+
+          {/* FINALIZE BUTTON */}
+          <button onClick={handleFinalize} disabled={isSaving || loading} className={`w-full py-6 rounded-2xl font-black text-xs uppercase tracking-[0.3em] shadow-xl transition-all active:scale-95 ${isSaving ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-100'}`}>
+            {isSaving ? "Wird gespeichert..." : "Inspektion finalisieren"}
+          </button>
+
+    </div>
       
       {/* --- LIGHTBOX EDITIEREN --- */}
       {editingDefect && (
@@ -297,11 +503,57 @@ export default function InspectionDashboard() {
         </div>
       )}
       
-      <div className="fixed bottom-8 right-6 group z-40">
-         <button onClick={() => window.open(`/ferrata/${ferrataId}/defect?from_inspection=true`, '_blank')} className="w-16 h-16 bg-orange-500 text-white rounded-full shadow-2xl flex items-center justify-center text-3xl border-4 border-white hover:scale-110 active:scale-95 transition-all shadow-orange-200">
-           <span className="mb-1">+</span>
-         </button>
-      </div>
+<div className="fixed bottom-8 right-6 group z-40">
+   <button 
+     onClick={() => setIsDefectModalOpen(true)} 
+     className="w-16 h-16 bg-orange-500 text-white rounded-full shadow-2xl flex items-center justify-center text-3xl border-4 border-white hover:scale-110 active:scale-95 transition-all shadow-orange-200"
+   >
+     <span className="mb-1">+</span>
+   </button>
+</div>        
+
+
+      {/* --- MODAL FÜR NEUEN MANGEL --- */}
+      {isDefectModalOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+          {/* Backdrop mit Blur-Effekt */}
+          <div 
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" 
+            onClick={() => setIsDefectModalOpen(false)} 
+          />
+          
+          {/* Modal Box */}
+          <div className="bg-[#fafafa] w-full max-w-xl rounded-2xl shadow-2xl z-[160] overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 slide-in-from-bottom-10 duration-300">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
+              <div>
+                <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-widest">Neuer Mangel - {ferrataName}</h3>
+    //            <p className="text-sm font-bold text-slate-900">Inspektions-Aufnahme</p>
+              </div>
+              <button 
+                onClick={() => setIsDefectModalOpen(false)}
+                className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full text-slate-400 hover:text-slate-900 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Formular-Inhalt (Scrollbar) */}
+            <div className="overflow-y-auto scrollbar-hide p-2">
+              <DefectReportForm 
+                ferrataId={ferrataId}
+                ferrataName={ferrataName}
+                topoUrl={topoUrl}
+                onClose={() => setIsDefectModalOpen(false)}
+                onSuccess={() => {
+                  loadInspectionData(); // Dashboard im Hintergrund sofort aktualisieren
+                  setIsDefectModalOpen(false);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,19 +3,13 @@
 import { useRouter, useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { createClient } from '../../../../lib/supabase';
-
 import { CloudStatusBadge } from '../../../components/CloudStatusBadge';
+import { DefectReportForm } from '../../../components/InternaDefectReport';
 import { FerrataStatusBadge } from '../../../components/FerrataStatusBadge';
 import { useAuth } from '../../../hooks/useAuth';
-
-
-// Ranking für die Sortierung
-const priorityRank: Record<string, number> = {
-  'kritisch': 1,
-  'hoch': 2,
-  'mittel': 3,
-  'niedrig': 4
-};
+import { useImageManager } from '../../../hooks/useImageManager'; 
+import { ImageManager } from '../../../components/ImageManager';
+import { priorityStyles, PriorityType } from '../../../../lib/priorityConfig';
 
 export default function MaintenanceCenter() {
   const router = useRouter();
@@ -59,6 +53,8 @@ export default function MaintenanceCenter() {
   // --- 2. DERIVED CONSTANTS ---
   const topoUrl = ferrata?.topo_url || null;
 
+  const [isDefectModalOpen, setIsDefectModalOpen] = useState(false);
+
   // --- 3. HELPER FUNCTIONS ---
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -78,46 +74,35 @@ export default function MaintenanceCenter() {
     }
   };
 
-  const getPriorityStyles = (priority: string) => {
-    const p = priority?.toLowerCase();
-    switch (p) {
-      case 'kritisch': 
-        return { bar: 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]', badge: 'bg-red-50 text-red-600 border-red-100', color: 'bg-red-500' };
-      case 'hoch': 
-        return { bar: 'bg-orange-500', badge: 'bg-orange-50 text-orange-600 border-orange-100', color: 'bg-orange-500' };
-      case 'mittel': 
-        return { bar: 'bg-yellow-400', badge: 'bg-yellow-50 text-yellow-700 border-yellow-100', color: 'bg-yellow-400' };
-      case 'niedrig': 
-        return { bar: 'bg-slate-200', badge: 'bg-white text-slate-400 border-slate-200', color: 'bg-white' };
-      default: 
-        return { bar: 'bg-slate-300', badge: 'bg-slate-50 text-slate-400 border-slate-200', color: 'bg-slate-100' };
-    }
-  };
-
   // --- 4. DATA FETCHING ---
 const fetchData = async () => {
   setLoading(true);
   try {
-    // 1. Basis-Daten laden (Ferrata, Meldungen, offene Mängel)
+    // 1. Basis-Daten laden
     const { data: ferrataData } = await supabase.from('ferratas').select('name, status, topo_url').eq('id', id).single();
     const { data: reportsData } = await supabase.from('reports').select('*').eq('ferrata_id', id).eq('verified', false).is('parent_defect_id', null).order('created_at', { ascending: false });
     const { data: allLinked } = await supabase.from('reports').select('*').eq('ferrata_id', id).not('parent_defect_id', 'is', null);
     const { data: defectsData } = await supabase.from('defects').select('*').eq('ferrata_id', id).eq('resolved', false);
     
     // 2. Historie-Quellen laden
-    // A) Manuelle Einträge aus maintenance_logs
     const { data: logsData } = await supabase.from('maintenance_logs').select('*').eq('ferrata_id', id);
-    // B) Erledigte Mängel aus defects
     const { data: resolvedDefects } = await supabase.from('defects').select('*').eq('ferrata_id', id).eq('resolved', true);
-    // C) NEU: Inspektionen laden
     const { data: inspectionsData } = await supabase.from('inspections').select('*').eq('ferrata_id', id);
 
     // --- Zuweisung der Basis-Daten ---
     if (ferrataData) setFerrata(ferrataData);
     if (reportsData) setUserReports(reportsData);
     if (defectsData) {
-      setDefects(defectsData.map(d => ({ ...d, children: allLinked?.filter(r => r.parent_defect_id === d.id) || [] }))
-        .sort((a, b) => (priorityRank[a.priority?.toLowerCase()] || 99) - (priorityRank[b.priority?.toLowerCase()] || 99)));
+      setDefects(defectsData.map(d => ({ 
+        ...d, 
+        children: allLinked?.filter(r => r.parent_defect_id === d.id) || [] 
+      }))
+      .sort((a, b) => {
+        // Nutzt den 'rank' aus der zentralen Config (Fallback 99)
+        const rankA = priorityStyles[a.priority as PriorityType]?.rank || 99;
+        const rankB = priorityStyles[b.priority as PriorityType]?.rank || 99;
+        return rankA - rankB;
+      }));
     }
 
     // --- Zusammenführung der Historie ---
@@ -134,25 +119,25 @@ const fetchData = async () => {
         date: d.resolved_at || d.created_at, 
         description: `REPARATUR ERLEDIGT: ${d.title || d.type}${d.repair_report ? ` — ${d.repair_report}` : ''}`,
         type: 'repair',
-        log_type: 'repair', // explizit für das Icon-Mapping
+        log_type: 'repair',
+        // NEU: Wir geben die Priorität mit, um die Farbe in der Timeline zu steuern
+        priority: d.priority, 
         user_name: d.verified_by_name,
         id: d.id,
         material: d.repair_material
       })),
-      // NEU: Mapping der Inspektionen in die Historie
       ...(inspectionsData || []).map(insp => ({
         date: insp.date,
         description: `JAHRESINSPEKTION DURCHGEFÜHRT: Zustand: ${insp.condition_rating}. ${insp.summary_report}`,
         type: 'inspection',
-        log_type: 'inspection', // sorgt für das grüne Schild-Icon
-        user_name: 'Techniker', // Oder insp.inspector_name falls vorhanden
+        log_type: 'inspection',
+        user_name: 'Techniker',
         id: insp.id,
         is_safe: insp.is_safe,
         is_public: insp.is_publicly_released
       }))
     ];
 
-    // --- SORTIERUNG ---
     const sortedHistory = combinedHistory.sort((a, b) => 
       new Date(b.date).getTime() - new Date(a.date).getTime()
     );
@@ -498,15 +483,19 @@ const fetchData = async () => {
           <span className="text-sm">🔧</span>
         </button>
       </div>
-      <button onClick={() => router.push(`/ferrata/${id}/defect`)} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all border border-blue-100 shadow-sm">MANGEL ERFASSEN +</button>
+        <button onClick={() => setIsDefectModalOpen(true)} // NEU: Öffnet das Modal statt Navigation
+        className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all border border-blue-100 shadow-sm">
+        MANGEL ERFASSEN +
+      </button>
     </div>
   </div>
 
   <div className="grid gap-3">
     {defects.length === 0 && <p className="text-center py-10 bg-slate-50 rounded-3xl text-xs text-slate-300 italic font-light">Keine offiziellen Mängel.</p>}
     {defects.map((d) => {
-      const styles = getPriorityStyles(d.priority);
-      const isExpanded = !!expandedDefects[d.id]; // Sicherstellen, dass es ein boolean ist
+      // Zugriff auf die zentrale Config (Fallback auf 'niedrig', falls mal was fehlt)
+      const styles = priorityStyles[d.priority as PriorityType] || priorityStyles.niedrig;
+      const isExpanded = !!expandedDefects[d.id];
       const hasChildren = d.children && d.children.length > 0;
 
       return (
@@ -514,8 +503,8 @@ const fetchData = async () => {
           {/* HAUPTKARTE (MASTER) */}
           <div onClick={() => { setSelectedReport(d); setActiveLightbox(editMode); }} 
                className={`bg-slate-50 border ${isExpanded ? 'border-blue-200' : 'border-slate-100'} rounded-3xl p-6 flex items-center gap-6 hover:border-blue-300 transition-all cursor-pointer group`}>
-            <div className={`w-1.5 h-12 rounded-full flex-shrink-0 ${styles.bar}`}></div>
-            
+            <div className={`w-1.5 h-12 rounded-full flex-shrink-0 ${styles.bg}`}></div>  
+
             <div className="flex-1 grid grid-cols-1 md:grid-cols-4 items-center gap-4">
               <div className="flex items-center gap-3">
                 <div>
@@ -592,19 +581,18 @@ const fetchData = async () => {
   </h3>
 
   <div className="space-y-2 border-l-2 border-slate-100 ml-4 pl-8 relative">
+    {/* Innerhalb von history.map im JSX */}
     {history.map((log, i) => {
-      // Bestimmung der Typen
       const isInspection = log.log_type === 'inspection' || log.type === 'inspection';
       const isStatus = log.log_type === 'status_change';
       const isRepair = log.type === 'repair' || log.log_type === 'repair';
 
-      // Default-Werte (Protokoll)
+      // Standard-Werte (Fallback)
       let dotColor = 'border-blue-500';
       let badgeClass = 'bg-slate-100 text-slate-400 border-slate-200';
       let icon = '📝';
       let typeLabel = 'Protokoll';
 
-      // Logik-Erweiterung für Inspektionen
       if (isInspection) {
         dotColor = 'border-emerald-500';
         badgeClass = 'bg-emerald-50 text-emerald-600 border-emerald-100';
@@ -616,8 +604,13 @@ const fetchData = async () => {
         icon = '📢';
         typeLabel = 'Status-Update';
       } else if (isRepair) {
-        dotColor = 'border-orange-500';
-        badgeClass = 'bg-orange-50 text-orange-600 border-orange-100';
+        // SICHERHEITS-CHECK: Wir holen den Style nur, wenn die Prio existiert
+        // Falls nicht, nutzen wir 'niedrig' als Standard-Look
+        const priorityKey = (log.priority?.toLowerCase() as PriorityType) || 'niedrig';
+        const pStyle = priorityStyles[priorityKey] || priorityStyles.niedrig;
+        
+        dotColor = pStyle.border; 
+        badgeClass = pStyle.badge;
         icon = '🔧';
         typeLabel = 'Reparatur';
       }
@@ -627,27 +620,27 @@ const fetchData = async () => {
           {/* Punkt auf der Timeline */}
           <div className={`absolute -left-[41px] top-1 w-4 h-4 rounded-full bg-white border-4 shadow-sm transition-transform group-hover:scale-125 ${dotColor}`}></div>
           
+          {/* Ab hier folgt der Rest deines UI-Codes (Cards etc.) */}
           <div className="bg-slate-50/50 border border-slate-100 rounded-[2rem] p-6 transition-all hover:bg-white hover:shadow-md hover:border-slate-200">
             <div className="flex flex-wrap justify-between items-center gap-3 mb-3">
               <time className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">
-                {new Date(log.date).toLocaleString('de-DE', { 
+                {log.date ? new Date(log.date).toLocaleString('de-DE', { 
                   day: '2-digit', month: '2-digit', year: 'numeric', 
                   hour: '2-digit', minute: '2-digit' 
-                })} Uhr
+                }) + " Uhr" : "Datum unbekannt"}
               </time>
               
               <div className="flex gap-2">
-                 {/* Spezial-Badge für Sicherheitsstatus bei Inspektionen */}
-                 {isInspection && (
-                   <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase border ${log.is_safe ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-red-500 text-white border-red-600'}`}>
-                     {log.is_safe ? 'Sicher' : 'Mangelhaft'}
-                   </span>
-                 )}
-                 
-                 <span className={`text-[8px] font-black px-2.5 py-1 rounded-full uppercase border ${badgeClass} flex items-center gap-1.5`}>
-                   <span>{icon}</span>
-                   {typeLabel}
-                 </span>
+                {isInspection && (
+                  <span className={`text-[8px] font-black px-2 py-1 rounded-full uppercase border ${log.is_safe ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-red-500 text-white border-red-600'}`}>
+                    {log.is_safe ? 'Sicher' : 'Mangelhaft'}
+                  </span>
+                )}
+                
+                <span className={`text-[8px] font-black px-2.5 py-1 rounded-full uppercase border ${badgeClass} flex items-center gap-1.5`}>
+                  <span>{icon}</span>
+                  {typeLabel}
+                </span>
               </div>
             </div>
             
@@ -662,16 +655,6 @@ const fetchData = async () => {
                   Aktion durch: <span className="text-slate-600 font-black">{log.user_name || 'Techniker'}</span>
                 </p>
               </div>
-
-              {/* PDF Button für Inspektionen */}
-              {isInspection && (
-                <button 
-                  onClick={() => alert("PDF-Generierung wird gestartet...")}
-                  className="text-[9px] font-black uppercase text-emerald-600 hover:text-emerald-700 transition-colors flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-100"
-                >
-                  📄 Bericht öffnen
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -795,9 +778,23 @@ const fetchData = async () => {
             </div>
           </div>
           <div className="grid grid-cols-4 gap-2">
-            {['niedrig', 'mittel', 'hoch', 'kritisch'].map((p) => {
-               const s = getPriorityStyles(p);
-               return <button key={p} onClick={() => setTempPrio(p)} className={`py-3 rounded-2xl text-[9px] font-black uppercase border transition-all ${tempPrio === p ? `${s.bar} text-white shadow-xl scale-105` : 'bg-white border-slate-50 text-slate-300'}`}>{p}</button>
+            {(Object.keys(priorityStyles) as PriorityType[]).map((p) => {
+              const style = priorityStyles[p];
+              const isActive = tempPrio === p;
+              
+              return (
+                <button 
+                  key={p} 
+                  onClick={() => setTempPrio(p)} 
+                  className={`py-3 rounded-2xl text-[9px] font-black uppercase border transition-all ${
+                    isActive 
+                      ? `${style.bg} ${style.text} ${style.border} shadow-xl scale-105 ${style.animate || ''}` 
+                      : 'bg-white border-slate-50 text-slate-300 opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  {p}
+                </button>
+              );
             })}
           </div>
         </div>
@@ -867,13 +864,45 @@ const fetchData = async () => {
         </div>
       )}
 
-      {/* FULLSCREEN IMAGE OVERLAY */}
-      {fullScreenImage && (
-        <div className="fixed inset-0 z-[200] bg-slate-900/98 flex items-center justify-center p-4 animate-in fade-in" onClick={() => {setFullScreenImage(null); setIsGalleryTopo(false);}}>
-          <button className="absolute top-6 right-6 text-white text-5xl font-light p-4 z-[210] hover:text-blue-400 transition-colors">×</button>
-          <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
-            <img src={fullScreenImage} className="max-w-[95vw] max-h-[85vh] object-contain shadow-2xl rounded-lg border border-white/10" alt="Vollbild" />
-            {isGalleryTopo && selectedReport?.topo_x && <div className="absolute w-3 h-3 bg-red-600 border-2 border-white rounded-full -translate-x-1/2 -translate-y-1/2 shadow-2xl" style={{ left: `${selectedReport.topo_x}%`, top: `${selectedReport.topo_y}%` }} />}
+      {/* --- MODAL FÜR MANUELLE MANGEL-ERFASSUNG --- */}
+      {isDefectModalOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" 
+            onClick={() => setIsDefectModalOpen(false)} 
+          />
+          
+          {/* Modal Box */}
+          <div className="bg-[#fafafa] w-full max-w-xl rounded-2xl shadow-2xl z-[160] overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 slide-in-from-bottom-10 duration-300">
+            
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white flex-shrink-0">
+              <div>
+                <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-widest">Neuer Mangel</h3>
+                <p className="text-sm font-bold text-slate-900">{ferrata?.name || 'Manuelle Erfassung'}</p>
+              </div>
+              <button 
+                onClick={() => setIsDefectModalOpen(false)}
+                className="w-8 h-8 flex items-center justify-center bg-slate-100 rounded-full text-slate-400 hover:text-slate-900 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* Scrollbarer Inhalt mit der Formular-Komponente */}
+            <div className="flex-1 overflow-y-auto p-2 scrollbar-hide">
+              <DefectReportForm 
+                ferrataId={id}
+                ferrataName={ferrata?.name}
+                topoUrl={ferrata?.topo_url}
+                onClose={() => setIsDefectModalOpen(false)}
+                onSuccess={() => {
+                  fetchData(); // Lädt die Mängelliste im Hintergrund sofort neu
+                  setIsDefectModalOpen(false);
+                }}
+              />
+            </div>
           </div>
         </div>
       )}

@@ -1,27 +1,26 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { createClient } from '../../../../lib/supabase';
-import { useAuth } from '../../../hooks/useAuth'; 
-import { CloudStatusBadge } from '../../../components/CloudStatusBadge';
+import { createClient } from '../../lib/supabase';
+import { useAuth } from '../hooks/useAuth'; 
+import { useImageManager } from '../hooks/useImageManager';
+import { ImageManager } from '../components/ImageManager';
 
-export default function InternalDefectReport() {
-  const router = useRouter();
-  const params = useParams();
-  const id = params.id as string;
+interface DefectReportFormProps {
+  ferrataId: string;
+  ferrataName: string;
+  topoUrl: string | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+export function DefectReportForm({ ferrataId, ferrataName, topoUrl, onClose, onSuccess }: DefectReportFormProps) {
   const supabase = createClient();
-//  const { userEmail, loading: authLoading } = useAuth();
-  const searchParams = useSearchParams();
-
+  const { userEmail, userProfile } = useAuth();
+  
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [topoUrl, setTopoUrl] = useState<string | null>(null);
-  const [ferrataName, setFerrataName] = useState<string>('');
   const [files, setFiles] = useState<FileList | null>(null);
-
-  const { userEmail, userProfile, loading: authLoading } = useAuth(); // userProfile enthält Name & Telefon
-  
   const [formData, setFormData] = useState({
     title: '',
     type: '',
@@ -35,21 +34,14 @@ export default function InternalDefectReport() {
     topo_y: null as number | null,
   });
 
-  useEffect(() => {
-    const fetchFerrataData = async () => {
-      const { data } = await supabase
-        .from('ferratas')
-        .select('name, topo_url')
-        .eq('id', id)
-        .single();
-      
-      if (data) {
-        setTopoUrl(data.topo_url);
-        setFerrataName(data.name);
-      }
-    };
-    fetchFerrataData();
-  }, [id]);
+  const { 
+    newFiles, 
+    isUploading, 
+    handleImageSelect, 
+    removeNewFile, 
+    clearNewFiles, 
+    uploadImages 
+  } = useImageManager(ferrataId);
 
   const handleGPS = () => {
     if (!navigator.geolocation) return;
@@ -72,75 +64,39 @@ export default function InternalDefectReport() {
   };
 
 const handleSubmit = async () => {
-  // 0. URL Parameter prüfen
-  const isInspection = searchParams.get('from_inspection') === 'true';
-
-  // 1. Validierung
-  if (!files || files.length === 0 || !formData.title || !formData.type || !formData.priority || !formData.description) {
-    alert("Bitte füllen Sie alle Pflichtfelder aus.");
+  // Validierung (jetzt prüfen wir auf newFiles statt auf files)
+  if (newFiles.length === 0 || !formData.title || !formData.type || !formData.priority || !formData.description) {
+    alert("Bitte füllen Sie alle Pflichtfelder aus und machen Sie mindestens ein Foto.");
     return;
   }
 
   setLoading(true);
   try {
-    // 2. Bilder Upload Prozess (bleibt gleich)
-    const uploadedUrls: string[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const fileExt = file.name.split('.').pop();
-      const path = `${id}/admin_manual_${Date.now()}_${i}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from('reports').upload(path, file);
-      if (uploadError) throw uploadError;
-      const { data: urlData } = supabase.storage.from('reports').getPublicUrl(path);
-      uploadedUrls.push(urlData.publicUrl);
-    }
+    // 1. Bilder über den ImageManager hochladen
+    // 'manual_report' dient als Unterordner im Storage
+    const uploadedUrls = await uploadImages('manual_report');
 
-    // 3. Melder-Info zusammenbauen
-    const reporterInfo = userProfile?.full_name 
-      ? `${userProfile.full_name} (${userEmail}${userProfile.phone ? `, Tel: ${userProfile.phone}` : ''})`
-      : `Techniker: ${userEmail}`;
-
-    // 4. Eintrag in 'defects'
+    // 2. Eintrag in 'defects' erstellen
     const { error: dbError } = await supabase.from('defects').insert([{
-      ferrata_id: id,
-      title: formData.title,
-      type: formData.type,
-      description: formData.description,
-      internal_comment: formData.internal_comment,
-      location: formData.location,
-      coordinates: formData.coordinates,
-      altitude: formData.altitude,
-      image_urls: uploadedUrls,
-      topo_x: formData.topo_x,
-      topo_y: formData.topo_y,
-      priority: formData.priority,
-      reporter_name: reporterInfo, 
-      verified_by_name: userEmail, 
-      verified_at: new Date().toISOString(),
-      resolved: false,
-      
-      // NEU: Kennzeichnung für den Wartungsbericht
-      // Wir nutzen ein Feld wie 'is_inspection_report', oder prüfen später auf das Datum
-      created_at: new Date().toISOString() 
+      ferrata_id: ferrataId,
+      // ... andere Felder
+      image_urls: uploadedUrls, // Die URLs vom Hook nutzen
+      // ...
     }]);
 
     if (dbError) throw dbError;
 
-    // 5. Navigation nach Erfolg
-    if (isInspection) {
-      alert("Mangel für Wartungsbericht gespeichert!");
-      window.close(); // Schließt den Tab und kehrt zur Inspektion zurück
-    } else {
-      router.push(`/ferrata/${id}/maintenance`);
-    }
+    clearNewFiles(); // State nach Erfolg leeren
+    onSuccess();
+    onClose();
   } catch (err: any) {
-    console.error("Speicherfehler:", err);
-    alert("Fehler beim Speichern: " + err.message);
+    alert("Fehler: " + err.message);
   } finally {
     setLoading(false);
   }
 };
-  const getPrioColor = (p: string) => {
+
+    const getPrioColor = (p: string) => {
     switch(p) {
       case 'niedrig': return formData.priority === p ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white text-slate-400 border-slate-100';
       case 'mittel': return formData.priority === p ? 'bg-yellow-400 border-yellow-500 text-yellow-900' : 'bg-white text-slate-400 border-slate-100';
@@ -150,39 +106,8 @@ const handleSubmit = async () => {
     }
   };
 
-  if (authLoading) return null;
-
   return (
-    <main className="min-h-screen bg-[#fafafa] text-slate-900 font-sans pb-32">
-      {/* Progress Bar */}
-      <div className="fixed top-0 left-0 w-full h-1 bg-slate-100 z-50">
-        <div className="h-full bg-blue-600 transition-all duration-700 ease-out" style={{ width: `${(step / 2) * 100}%` }}></div>
-      </div>
-
-      <div className="max-w-md mx-auto px-6 pt-12 space-y-8">
-        
-        {/* HEADER MIT BADGE */}
-        <header className="flex flex-col space-y-6">
-          <div className="flex justify-between items-center w-full">
-            <button 
-              onClick={() => router.push(`/ferrata/${id}/maintenance`)} 
-              className="text-slate-400 hover:text-slate-900 text-xs font-medium flex items-center gap-2"
-            >
-              ← Abbrechen
-            </button>
-            <CloudStatusBadge />
-          </div>
-          
-          <div>
-            <h2 className="text-xl font-bold tracking-tight">
-              {step === 1 ? "1. Lokalisierung" : "2. Mangel-Details"}
-            </h2>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-blue-500">
-              Manuelle Erfassung: {ferrataName}
-            </p>
-          </div>
-        </header>
-
+    <div className="space-y-6 px-1 pb-6">
         {/* STEP 1 */}
         {step === 1 && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
@@ -224,6 +149,7 @@ const handleSubmit = async () => {
                   </>
                 )}
               </button>
+
               <input type="text" placeholder="Höhe (m) *" className="bg-white border border-slate-100 p-4 rounded-2xl text-xs outline-none text-center" value={formData.altitude} onChange={e => setFormData({...formData, altitude: e.target.value})} />
             </div>
 
@@ -238,16 +164,11 @@ const handleSubmit = async () => {
         {/* STEP 2 */}
         {step === 2 && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-            
             <div>
-              <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest ml-4">Offizieller Titel *</label>
-              <input 
-                type="text" 
-                value={formData.title} 
+              <input type="text" value={formData.title} 
                 onChange={e => setFormData({...formData, title: e.target.value})} 
                 className="w-full bg-white border border-slate-100 rounded-2xl p-4 text-sm font-bold focus:border-blue-500 outline-none transition-all" 
-                placeholder="Bezeichnung..." 
-              />
+                placeholder="Bezeichnung...*" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -289,28 +210,39 @@ const handleSubmit = async () => {
               />
             </div>
 
-            <div className={`p-8 rounded-2xl border-2 border-dashed text-center transition-all ${files?.length ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-slate-100'}`}>
-              <input type="file" multiple accept="image/*" onChange={e => setFiles(e.target.files)} className="hidden" id="file-upload" />
-              <label htmlFor="file-upload" className="cursor-pointer">
-                <p className={`text-sm font-medium ${files?.length ? 'text-emerald-600' : 'text-blue-600'}`}>
-                  {files?.length ? `✓ ${files.length} Bilder hinzugefügt` : "Fotos aufnehmen *"}
+            {/* Der professionelle ImageManager */}
+            <div className="bg-white border border-slate-100 rounded-3xl p-2">
+
+              
+              <ImageManager 
+                existingUrls={[]} // Bei einer Neuerstellung gibt es noch keine existierenden URLs
+                newFiles={newFiles}
+                onRemoveExisting={() => {}} // Nicht benötigt
+                onRemoveNew={removeNewFile}
+                onSelect={handleImageSelect}
+              />
+              
+              {isUploading && (
+                <p className="text-[10px] text-blue-600 font-bold animate-pulse text-center pb-4">
+                  Bilder werden verarbeitet...
                 </p>
-              </label>
+              )}
             </div>
 
-            <div className="space-y-3 pt-4">
-              <button 
-                onClick={handleSubmit} 
-                disabled={loading || !formData.title || !formData.type || !formData.priority || !formData.description || !files?.length} 
-                className={`w-full py-4 rounded-2xl font-medium text-sm transition-all ${ (loading || !formData.title || !formData.type || !formData.priority || !formData.description || !files?.length) ? 'bg-slate-100 text-slate-300' : 'bg-slate-900 text-white shadow-xl shadow-slate-200 active:scale-[0.98]'}`}
-              >
+            <div className="space-y-3 pt-4"> 
+              <button onClick={handleSubmit} disabled={ loading || !formData.title || !formData.type || !formData.priority || !formData.description || newFiles.length === 0} 
+                className={`w-full py-4 rounded-2xl font-bold text-sm transition-all ${(loading || !formData.title || !formData.type || !formData.priority || !formData.description || newFiles.length === 0) 
+                    ? 'bg-slate-100 text-slate-300' : 'bg-slate-900 text-white shadow-xl shadow-slate-200 active:scale-[0.98]'}`} >
                 {loading ? "Wird gespeichert..." : "Mangel offiziell speichern"}
               </button>
-              <button onClick={() => setStep(1)} className="w-full text-[11px] font-medium text-slate-400 uppercase tracking-wider">Zurück zur Ortung</button>
+              
+              <button type="button" onClick={() => setStep(1)} className="w-full text-[11px] font-bold text-sm text-slate-400 uppercase tracking-wider">
+                Zurück zur Ortung
+              </button>
             </div>
           </div>
         )}
-      </div>
-    </main>
+
+    </div>
   );
 }
