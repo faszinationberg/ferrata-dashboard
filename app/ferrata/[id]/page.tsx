@@ -616,7 +616,7 @@ const removeImage = (index: number) => {
             </div>
 
             {/* Status & Difficulty Badges */}
-            <div className="flex gap-4">
+            <div className="flex flex-col md:flex-row gap-4 mt-8">
               <Badge 
                 label="Difficulty" 
                 value={ferrata.difficulty} 
