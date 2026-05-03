@@ -316,7 +316,7 @@ export default function MaintenanceCenter() {
                   </button>
                 </div>
                   <button onClick={() => setIsDefectModalOpen(true)} // NEU: Öffnet das Modal statt Navigation
-                  className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all border border-blue-100 shadow-sm">
+                  className="hidden md:block bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all border border-blue-100 shadow-sm">
                   MANGEL ERFASSEN +
                 </button>
               </div>
@@ -780,6 +780,15 @@ export default function MaintenanceCenter() {
           </div>
         </div>
       )}
+
+      {/* FLOATING ACTION BUTTON (Mobile only) */}
+      <button 
+        onClick={() => setIsDefectModalOpen(true)}
+        className="md:hidden fixed bottom-8 right-6 w-16 h-16 bg-blue-600 text-white rounded-full shadow-2xl flex items-center justify-center z-[100] active:scale-90 transition-transform border-4 border-white"
+      >
+        <span className="text-3xl font-light">+</span>
+      </button>
+
     </main>
   );
 }

@@ -652,7 +652,7 @@ const removeImage = (index: number) => {
             </button>
             )}
 
-            <div className="flex justify-between items-center mb-10 border-b border-slate-50 pb-6 pr-12">
+            <div className="flex justify-between items-center border-b border-slate-50 pb-4 pr-12">
               <div className="space-y-1">
                 <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Verwaltung & Kontakt</h3>
                 <p className="text-xs text-slate-300 italic">Offizielle Zuständigkeiten</p>
@@ -673,6 +673,29 @@ const removeImage = (index: number) => {
                 </button>
               </div>
             </div>
+
+<div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/50 p-5 rounded-2xl border border-slate-100 shadow-sm">
+  <div className="space-y-1">
+    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+      Status Wartungsvertrag
+    </p>
+    <p className="text-[9px] text-slate-400 leading-tight max-w-[240px]">
+      Service-Abkommen für regelmäßige jährliche Prüfungen durch Fachpersonal.
+    </p>
+  </div>
+
+  <button 
+    onClick={() => isGlobalEdit && updateField('maintenance_contract', !ferrata.maintenance_contract)} 
+    disabled={!isGlobalEdit}
+    className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border shadow-sm self-start sm:self-auto ${
+      ferrata.maintenance_contract 
+        ? 'bg-emerald-50 text-emerald-600 border-emerald-100 shadow-emerald-100/20' 
+        : 'bg-white text-slate-400 border-slate-200'
+    } ${!isGlobalEdit ? 'cursor-default opacity-90' : 'hover:scale-[1.02] active:scale-95'}`}
+  >
+    {ferrata.maintenance_contract ? "Vertrag Aktiv ✓" : "Kein Vertrag ✕"}
+  </button>
+</div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               {/* Betreiber Spalte */}
