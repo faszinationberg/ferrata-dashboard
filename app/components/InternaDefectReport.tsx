@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '../../lib/supabase';
 import { useAuth } from '../hooks/useAuth'; 
 import { useImageManager } from '../hooks/useImageManager';
 import { ImageManager } from '../components/ImageManager';
+
 
 interface DefectReportFormProps {
   ferrataId: string;
@@ -18,6 +19,9 @@ export function DefectReportForm({ ferrataId, ferrataName, topoUrl, onClose, onS
   const supabase = createClient();
   const { userEmail, userProfile } = useAuth();
   
+  // 2. Erstelle einen Ref für den äußeren Container
+  const formContainerRef = useRef<HTMLDivElement>(null);
+    
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState<FileList | null>(null);
@@ -43,6 +47,19 @@ export function DefectReportForm({ ferrataId, ferrataName, topoUrl, onClose, onS
     uploadImages 
   } = useImageManager(ferrataId);
 
+// 3. Dieser Effekt triggert bei jedem Step-Wechsel
+  useEffect(() => {
+      if (formContainerRef.current) {
+        // Wir scrollen nicht nur das Div, sondern suchen den Modal-Body, 
+        // falls das Div selbst kein Scrollbar hat.
+        formContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+        
+        // Sicherheits-Variante: Da das Modal im MaintenanceCenter die Scrollbar hat,
+        // erzwingen wir den Scroll auf das erste Element im Formular.
+        formContainerRef.current.scrollIntoView({ block: 'start' });
+      }
+    }, [step]); // Abhängigkeit vom Step
+
   const handleGPS = () => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition((pos) => {
@@ -63,40 +80,67 @@ export function DefectReportForm({ ferrataId, ferrataName, topoUrl, onClose, onS
     }));
   };
 
-const handleSubmit = async () => {
-  // Validierung (jetzt prüfen wir auf newFiles statt auf files)
-  if (newFiles.length === 0 || !formData.title || !formData.type || !formData.priority || !formData.description) {
-    alert("Bitte füllen Sie alle Pflichtfelder aus und machen Sie mindestens ein Foto.");
-    return;
-  }
+  const handleSubmit = async () => {
+    // 1. Validierung (Pflichtfelder + neue Bilder aus dem Hook)
+    if (newFiles.length === 0 || !formData.title || !formData.type || !formData.priority || !formData.description) {
+      alert("Bitte füllen Sie alle Pflichtfelder aus und machen Sie mindestens ein Foto.");
+      return;
+    }
 
-  setLoading(true);
-  try {
-    // 1. Bilder über den ImageManager hochladen
-    // 'manual_report' dient als Unterordner im Storage
-    const uploadedUrls = await uploadImages('manual_report');
+    setLoading(true);
+    try {
+      // 2. Bilder über den ImageManager hochladen (ersetzt deinen manuellen Loop)
+      // Der Hook kümmert sich um Pfade, Storage-Bucket und Error-Handling
+      const uploadedUrls = await uploadImages('manual_report');
 
-    // 2. Eintrag in 'defects' erstellen
-    const { error: dbError } = await supabase.from('defects').insert([{
-      ferrata_id: ferrataId,
-      // ... andere Felder
-      image_urls: uploadedUrls, // Die URLs vom Hook nutzen
-      // ...
-    }]);
+      // 3. Melder-Info zusammenbauen (Techniker-Identifikation)
+      const reporterInfo = userProfile?.full_name 
+        ? `${userProfile.full_name} (${userEmail}${userProfile.phone ? `, Tel: ${userProfile.phone}` : ''})`
+        : `Techniker: ${userEmail}`;
 
-    if (dbError) throw dbError;
+      // 4. Eintrag in 'defects' erstellen
+      const { error: dbError } = await supabase.from('defects').insert([{
+        ferrata_id: ferrataId,
+        title: formData.title,
+        type: formData.type,
+        description: formData.description,
+        internal_comment: formData.internal_comment,
+        location: formData.location,
+        coordinates: formData.coordinates,
+        altitude: formData.altitude,
+        image_urls: uploadedUrls, // URLs vom ImageManager-Upload
+        topo_x: formData.topo_x,
+        topo_y: formData.topo_y,
+        priority: formData.priority,
+        reporter_name: reporterInfo, 
+        verified_by_name: userEmail, 
+        verified_at: new Date().toISOString(),
+        resolved: false,
+        created_at: new Date().toISOString() 
+      }]);
 
-    clearNewFiles(); // State nach Erfolg leeren
-    onSuccess();
-    onClose();
-  } catch (err: any) {
-    alert("Fehler: " + err.message);
-  } finally {
-    setLoading(false);
-  }
-};
+      if (dbError) throw dbError;
 
-    const getPrioColor = (p: string) => {
+      // 5. Erfolg & Cleanup
+      clearNewFiles(); // Hook State leeren
+      
+      // Da wir jetzt in einem Modal arbeiten, triggern wir onSuccess (lädt die Liste im Hintergrund neu)
+      // und onClose (schließt das Modal)
+      onSuccess();
+      onClose();
+
+      // Feedback für den User
+      alert("Mangel erfolgreich erfasst und verifiziert.");
+
+    } catch (err: any) {
+      console.error("Speicherfehler:", err);
+      alert("Fehler beim Speichern: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getPrioColor = (p: string) => {
     switch(p) {
       case 'niedrig': return formData.priority === p ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white text-slate-400 border-slate-100';
       case 'mittel': return formData.priority === p ? 'bg-yellow-400 border-yellow-500 text-yellow-900' : 'bg-white text-slate-400 border-slate-100';
@@ -104,10 +148,11 @@ const handleSubmit = async () => {
       case 'kritisch': return formData.priority === p ? 'bg-red-600 border-red-700 text-white animate-pulse' : 'bg-white text-slate-400 border-slate-100';
       default: return 'bg-white border-slate-100 text-slate-400';
     }
+        
   };
 
   return (
-    <div className="space-y-6 px-1 pb-6">
+    <div ref={formContainerRef} className="space-y-6 px-1 pb-6">
         {/* STEP 1 */}
         {step === 1 && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">

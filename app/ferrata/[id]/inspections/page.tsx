@@ -503,32 +503,21 @@ useEffect(() => {
         </div>
       )}
       
-<div className="fixed bottom-8 right-6 group z-40">
-   <button 
-     onClick={() => setIsDefectModalOpen(true)} 
-     className="w-16 h-16 bg-orange-500 text-white rounded-full shadow-2xl flex items-center justify-center text-3xl border-4 border-white hover:scale-110 active:scale-95 transition-all shadow-orange-200"
-   >
-     <span className="mb-1">+</span>
-   </button>
-</div>        
-
-
       {/* --- MODAL FÜR NEUEN MANGEL --- */}
       {isDefectModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
           {/* Backdrop mit Blur-Effekt */}
           <div 
             className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300" 
-            onClick={() => setIsDefectModalOpen(false)} 
-          />
+            onClick={() => setIsDefectModalOpen(false)} />
           
           {/* Modal Box */}
           <div className="bg-[#fafafa] w-full max-w-xl rounded-2xl shadow-2xl z-[160] overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 slide-in-from-bottom-10 duration-300">
             {/* Modal Header */}
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
               <div>
-                <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-widest">Neuer Mangel - {ferrataName}</h3>
-    //            <p className="text-sm font-bold text-slate-900">Inspektions-Aufnahme</p>
+                <h3 className="font-black uppercase text-[10px] text-slate-400 tracking-widest">Neuer Mangel</h3>
+                <p className="text-sm font-bold text-slate-900">{ferrataName || 'Manuelle Erfassung'}</p>
               </div>
               <button 
                 onClick={() => setIsDefectModalOpen(false)}
@@ -554,6 +543,18 @@ useEffect(() => {
           </div>
         </div>
       )}
+
+<div className="fixed bottom-8 right-6 group z-40">
+   <button 
+     onClick={() => setIsDefectModalOpen(true)} 
+     className="w-16 h-16 bg-orange-500 text-white rounded-full shadow-2xl flex items-center justify-center text-3xl border-4 border-white hover:scale-110 active:scale-95 transition-all shadow-orange-200"
+   >
+     <span className="mb-1">+</span>
+   </button>
+</div>        
+
+
+
     </div>
   );
 }

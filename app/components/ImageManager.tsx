@@ -28,7 +28,11 @@ export function ImageManager({ existingUrls, newFiles, onRemoveExisting, onRemov
   };
 
   return (
-    <div className="space-y-4 pt-6 border-t border-slate-50 text-slate-900">
+      // ÄNDERE DIESE ZEILE:
+      // <div className="space-y-4 pt-6 border-t border-slate-50 text-slate-900">
+
+      // IN DIESE ZEILE:
+      <div className="space-y-2 text-slate-900"> 
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">
         Dokumentation (Klicken zum Vergrößern)
       </p>
